@@ -1,0 +1,3 @@
+[submodule "third_party/BarraCUDA"]
+	path = third_party/BarraCUDA
+	url = https://github.com/Zaneham/BarraCUDA.git

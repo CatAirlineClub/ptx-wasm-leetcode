@@ -22,6 +22,7 @@ enum class InstructionTypes {
     ADD,
     SUB,
     MUL,
+    MAD,
     DIV,
     REM, // Remainder/modulo
     AND,

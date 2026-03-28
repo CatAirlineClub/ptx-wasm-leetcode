@@ -81,6 +81,56 @@ if(BUILD_EXAMPLES)
 endif()
 
 if(EMSCRIPTEN)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    find_program(EMCC_EXECUTABLE NAMES emcc REQUIRED)
+
+    set(BARRACUDA_WEB_OUTPUT_DIR "${CMAKE_BINARY_DIR}/webapp")
+    set(BARRACUDA_WEB_JS "${BARRACUDA_WEB_OUTPUT_DIR}/barracuda.js")
+    set(BARRACUDA_WEB_SOURCES
+        ${CMAKE_SOURCE_DIR}/web/barracuda_web_bridge.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/fe/bc_err.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/fe/preproc.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/fe/lexer.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/fe/parser.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/fe/sema.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/ir/bir.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/ir/bir_lower.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/ir/bir_mem2reg.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/ir/bir_cfold.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/ir/bir_dce.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/nvidia/isel.c
+        ${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/nvidia/emit.c
+    )
+
+    add_custom_command(
+        OUTPUT "${BARRACUDA_WEB_JS}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${BARRACUDA_WEB_OUTPUT_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E env
+            EMSDK_PYTHON=${Python3_EXECUTABLE}
+            ${EMCC_EXECUTABLE}
+            -std=c99
+            -O2
+            -I${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src
+            -I${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/fe
+            -I${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/ir
+            -I${CMAKE_SOURCE_DIR}/third_party/BarraCUDA/src/nvidia
+            ${BARRACUDA_WEB_SOURCES}
+            -sALLOW_MEMORY_GROWTH=1
+            -sFORCE_FILESYSTEM=1
+            -sINVOKE_RUN=0
+            -sEXIT_RUNTIME=0
+            -sMODULARIZE=1
+            -sEXPORT_NAME=createBarraModule
+            -sEXPORTED_FUNCTIONS=['_malloc','_free','_barracuda_compile_to_ptx','_barracuda_get_last_error']
+            -sEXPORTED_RUNTIME_METHODS=['ccall','FS']
+            -o "${BARRACUDA_WEB_JS}"
+        DEPENDS ${BARRACUDA_WEB_SOURCES}
+        COMMENT "Building BarraCUDA wasm compiler"
+        VERBATIM
+    )
+
+    add_custom_target(barracuda_web DEPENDS "${BARRACUDA_WEB_JS}")
+
     add_executable(ptx_web
         web/ptx_web_bridge.cpp
     )
@@ -116,6 +166,8 @@ if(EMSCRIPTEN)
         "SHELL:-sEXPORTED_FUNCTIONS=['_malloc','_free','_ptxvm_load_program','_ptxvm_get_entry_count','_ptxvm_get_entry_name','_ptxvm_get_param_count','_ptxvm_get_param_name','_ptxvm_get_param_type','_ptxvm_is_param_pointer','_ptxvm_run_vector_add','_ptxvm_get_result_count','_ptxvm_get_result_value','_ptxvm_get_last_error']"
         "SHELL:-sEXPORTED_RUNTIME_METHODS=['ccall','FS','HEAPF32']"
     )
+
+    add_dependencies(ptx_web barracuda_web)
 
     add_custom_command(TARGET ptx_web POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

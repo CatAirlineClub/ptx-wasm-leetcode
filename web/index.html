@@ -473,6 +473,16 @@
       line-height: 1.6;
     }
 
+    .field textarea.source-editor {
+      min-height: 280px;
+      tab-size: 4;
+    }
+
+    .field textarea.ptx-preview {
+      min-height: 180px;
+      opacity: 0.94;
+    }
+
     .field input[type="file"]:focus,
     .field select:focus,
     .field textarea:focus {
@@ -679,7 +689,7 @@
           <div class="eyebrow">Problem Set</div>
           <h2>GPU Warmup Track</h2>
           <p class="muted">
-            这个页面是一个 PTX 版的题目练习场。左边看题，右边上传你编译好的 PTX，然后直接在浏览器里跑 judge。
+            这个页面是一个 GPU 题目练习场。左边看题，右边直接写或导入 CUDA 源码，再在浏览器里编译成 PTX 并跑 judge。
           </p>
           <ul id="problem-list" class="problem-list"></ul>
         </div>
@@ -690,12 +700,13 @@
           <div class="eyebrow">Submission Flow</div>
           <h2>Compile, Upload, Run</h2>
           <div class="mini-row" style="margin: 14px 0 0;">
-            <span class="badge accent">CUDA/PTX</span>
+            <span class="badge accent">CUDA -> PTX</span>
             <span class="badge warn">No External Libs</span>
           </div>
           <div class="hint-box" style="margin-top: 14px;">
             <strong>Judge Contract</strong>
-            上传的 kernel 需要是三个 pointer 加一个 <span style="font-family: var(--mono);">.u32 N</span> 的向量加法签名。
+            右侧会先用 BarraCUDA 在浏览器里把 <span style="font-family: var(--mono);">.cu</span> 编译成 PTX。
+            上传的 kernel 需要是三个 pointer 加一个 <span style="font-family: var(--mono);">.u32 N</span> 的向量加法签名，
             这版页面会把结果当作 <span style="font-family: var(--mono);">vector C</span> 来校验。
           </div>
         </div>
@@ -775,9 +786,9 @@
                 </header>
                 <div class="starter-body">
                   <div class="hint-box">
-                    Write your CUDA kernel with the required signature, compile it to PTX, then upload the generated
-                    <span style="font-family: var(--mono);">.ptx</span> file on the right side. The browser judge will detect your entry
-                    function and run it against the selected sample input.
+                    Write your CUDA kernel with the required signature, then paste or import the
+                    <span style="font-family: var(--mono);">.cu</span> source on the right side. The page will compile it with the in-browser
+                    BarraCUDA compiler, detect your entry function, and run it against the selected sample input.
                   </div>
                 </div>
               </article>
@@ -790,16 +801,26 @@
         <article class="card judge-card">
           <header>
             <div>
-              <h2>Submit PTX</h2>
-              <p class="judge-subtle">Upload the PTX for your solution, then choose the detected entry kernel.</p>
+              <h2>Submit CUDA</h2>
+              <p class="judge-subtle">Load or edit a .cu file, compile it to PTX in-browser, then choose the detected entry kernel.</p>
             </div>
-            <span class="badge accent">Browser Judge</span>
+            <span class="badge accent">BarraCUDA + PTX VM</span>
           </header>
           <div class="judge-body">
             <div class="field-grid">
               <div class="field">
-                <label for="ptx-file">PTX file</label>
-                <input id="ptx-file" type="file" accept=".ptx,.txt" />
+                <label for="cuda-file">CUDA source file</label>
+                <input id="cuda-file" type="file" accept=".cu,.txt" />
+              </div>
+
+              <div class="field">
+                <label for="cuda-source">CUDA source</label>
+                <textarea id="cuda-source" class="source-editor" spellcheck="false"></textarea>
+              </div>
+
+              <div class="button-row">
+                <button id="compile-button" class="primary" type="button">Compile .cu</button>
+                <button id="source-reset-button" class="secondary" type="button">Reset Starter Code</button>
               </div>
 
               <div class="field">
@@ -810,6 +831,11 @@
               <div class="field">
                 <div class="label">Kernel signature</div>
                 <ul id="kernel-meta" class="meta-list"></ul>
+              </div>
+
+              <div class="field">
+                <label for="generated-ptx">Generated PTX preview</label>
+                <textarea id="generated-ptx" class="ptx-preview" readonly spellcheck="false"></textarea>
               </div>
             </div>
           </div>
@@ -923,6 +949,8 @@
 
     const logQueue = [];
     let currentExampleIndex = 0;
+    let barraModule = null;
+    let barraModulePromise = null;
 
     function formatNumber(value) {
       if (!Number.isFinite(value)) {
@@ -969,7 +997,7 @@
       printErr: (text) => pushLog(text, "stderr"),
       onRuntimeInitialized() {
         setRuntimeReady(true);
-        pushLog("WASM judge ready. Upload a PTX solution to start testing.", "runtime");
+        pushLog("WASM judge ready. Compile a CUDA submission to start testing.", "runtime");
         renderEmptyState();
       }
     };
@@ -1053,6 +1081,27 @@
       document.getElementById("starter-code").textContent = PROBLEM.starterCode;
     }
 
+    function resetSourceEditor(pushMessage = true) {
+      const editor = document.getElementById("cuda-source");
+      if (!editor) {
+        return;
+      }
+
+      editor.value = PROBLEM.starterCode;
+      if (pushMessage) {
+        pushLog("Reset the CUDA editor to the starter code.", "runtime");
+      }
+    }
+
+    function setGeneratedPTX(text) {
+      const preview = document.getElementById("generated-ptx");
+      if (!preview) {
+        return;
+      }
+
+      preview.value = text || "";
+    }
+
     function renderExamples() {
       const grid = document.getElementById("example-grid");
       grid.innerHTML = "";
@@ -1108,7 +1157,7 @@
       if (paramCount === 0) {
         const item = document.createElement("li");
         item.className = "meta-item";
-        item.textContent = "No kernel metadata yet. Upload a valid PTX file first.";
+        item.textContent = "No kernel metadata yet. Compile a valid CUDA submission first.";
         meta.appendChild(item);
         return;
       }
@@ -1171,11 +1220,72 @@
       }
     }
 
-    async function handleFileChange(event) {
-      if (!ensureRuntime()) {
-        return;
+    function ensureModuleWorkspace(module) {
+      if (!module.FS.analyzePath("/workspace").exists) {
+        module.FS.mkdir("/workspace");
+      }
+    }
+
+    async function ensureCompilerReady() {
+      if (barraModule) {
+        return barraModule;
       }
 
+      if (!barraModulePromise) {
+        if (typeof createBarraModule !== "function") {
+          throw new Error("BarraCUDA compiler assets are not available.");
+        }
+
+        pushLog("Loading the BarraCUDA compiler wasm module...", "runtime");
+        barraModulePromise = createBarraModule({
+          print: (text) => pushLog(`[BarraCUDA] ${text}`, "runtime"),
+          printErr: (text) => pushLog(`[BarraCUDA] ${text}`, "stderr")
+        }).then((module) => {
+          barraModule = module;
+          pushLog("BarraCUDA compiler ready. You can now compile .cu submissions in the browser.", "runtime");
+          return module;
+        });
+      }
+
+      return barraModulePromise;
+    }
+
+    function loadPTXProgram(ptxText, label) {
+      if (!ensureRuntime()) {
+        return false;
+      }
+
+      ensureModuleWorkspace(window.Module);
+      window.Module.FS.writeFile("/workspace/uploaded.ptx", ptxText);
+      const ok = window.Module.ccall("ptxvm_load_program", "number", ["string"], ["/workspace/uploaded.ptx"]);
+
+      if (!ok) {
+        const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+        pushLog(error || "Failed to load the generated PTX submission.", "stderr");
+        return false;
+      }
+
+      const entryCount = window.Module.ccall("ptxvm_get_entry_count", "number", [], []);
+      const select = document.getElementById("kernel-select");
+      select.innerHTML = "";
+
+      for (let i = 0; i < entryCount; i += 1) {
+        const option = document.createElement("option");
+        option.value = window.Module.ccall("ptxvm_get_entry_name", "string", ["number"], [i]);
+        option.textContent = option.value;
+        select.appendChild(option);
+      }
+
+      select.disabled = entryCount === 0;
+      document.getElementById("run-button").disabled = entryCount === 0;
+
+      renderKernelMetadata();
+      renderEmptyState();
+      pushLog(`Loaded generated PTX from ${label}.`, "runtime");
+      return true;
+    }
+
+    async function handleCudaFileChange(event) {
       const file = event.target.files?.[0];
       if (!file) {
         return;
@@ -1183,39 +1293,48 @@
 
       try {
         const content = await file.text();
+        document.getElementById("cuda-source").value = content;
+        pushLog(`Loaded CUDA source file: ${file.name}`, "runtime");
+      } catch (error) {
+        pushLog(`File read failed: ${error.message}`, "stderr");
+      }
+    }
 
-        if (!window.Module.FS.analyzePath("/workspace").exists) {
-          window.Module.FS.mkdir("/workspace");
-        }
+    async function compileCurrentSource() {
+      if (!ensureRuntime()) {
+        return;
+      }
 
-        window.Module.FS.writeFile("/workspace/uploaded.ptx", content);
-        const ok = window.Module.ccall("ptxvm_load_program", "number", ["string"], ["/workspace/uploaded.ptx"]);
+      const source = document.getElementById("cuda-source").value;
+      if (!source.trim()) {
+        pushLog("CUDA source is empty. Paste code or import a .cu file first.", "stderr");
+        return;
+      }
+
+      try {
+        const compiler = await ensureCompilerReady();
+        ensureModuleWorkspace(compiler);
+
+        compiler.FS.writeFile("/workspace/submission.cu", source);
+        const ok = compiler.ccall(
+          "barracuda_compile_to_ptx",
+          "number",
+          ["string", "string"],
+          ["/workspace/submission.cu", "/workspace/submission.ptx"]
+        );
 
         if (!ok) {
-          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
-          pushLog(error || "Failed to load the PTX submission.", "stderr");
+          const error = compiler.ccall("barracuda_get_last_error", "string", [], []);
+          pushLog(error || "BarraCUDA failed to compile the CUDA source.", "stderr");
           return;
         }
 
-        const entryCount = window.Module.ccall("ptxvm_get_entry_count", "number", [], []);
-        const select = document.getElementById("kernel-select");
-        select.innerHTML = "";
-
-        for (let i = 0; i < entryCount; i += 1) {
-          const option = document.createElement("option");
-          option.value = window.Module.ccall("ptxvm_get_entry_name", "string", ["number"], [i]);
-          option.textContent = option.value;
-          select.appendChild(option);
-        }
-
-        select.disabled = entryCount === 0;
-        document.getElementById("run-button").disabled = entryCount === 0;
-
-        renderKernelMetadata();
-        renderEmptyState();
-        pushLog(`Loaded PTX submission: ${file.name}`, "runtime");
+        const generatedPTX = compiler.FS.readFile("/workspace/submission.ptx", { encoding: "utf8" });
+        setGeneratedPTX(generatedPTX);
+        pushLog("Compiled the CUDA submission to PTX in-browser.", "runtime");
+        loadPTXProgram(generatedPTX, "submission.cu");
       } catch (error) {
-        pushLog(`File read failed: ${error.message}`, "stderr");
+        pushLog(`Compilation failed: ${error.message}`, "stderr");
       }
     }
 
@@ -1279,8 +1398,12 @@
       renderExamples();
       setupTabs();
       useExample(currentExampleIndex);
+      resetSourceEditor(false);
+      setGeneratedPTX("");
 
-      document.getElementById("ptx-file").addEventListener("change", handleFileChange);
+      document.getElementById("cuda-file").addEventListener("change", handleCudaFileChange);
+      document.getElementById("compile-button").addEventListener("click", compileCurrentSource);
+      document.getElementById("source-reset-button").addEventListener("click", () => resetSourceEditor(true));
       document.getElementById("kernel-select").addEventListener("change", renderKernelMetadata);
       document.getElementById("run-button").addEventListener("click", runVectorAdd);
       document.getElementById("reset-button").addEventListener("click", () => useExample(0));
@@ -1288,8 +1411,12 @@
       document.getElementById("example-2-button").addEventListener("click", () => useExample(1));
 
       renderEmptyState();
+      ensureCompilerReady().catch((error) => {
+        pushLog(`Compiler bootstrap failed: ${error.message}`, "stderr");
+      });
     });
   </script>
   <script src="ptx_web.js"></script>
+  <script src="barracuda.js"></script>
 </body>
 </html>

@@ -640,6 +640,11 @@ InstructionTypes PTXParser::Impl::opcodeToInstructionType(const std::string &opc
         if (isF64) return InstructionTypes::MUL_F64;
         return InstructionTypes::MUL;
     }
+    if (opcode == "mad") {
+        if (isF32) return InstructionTypes::FMA_F32;
+        if (isF64) return InstructionTypes::FMA_F64;
+        return InstructionTypes::MAD;
+    }
     if (opcode == "div") {
         if (isF32) return InstructionTypes::DIV_F32;
         if (isF64) return InstructionTypes::DIV_F64;

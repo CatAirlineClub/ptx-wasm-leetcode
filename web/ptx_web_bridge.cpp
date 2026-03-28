@@ -152,17 +152,18 @@ public:
             return false;
         }
 
-        auto vm = createVm();
-        if (!vm) {
+        const size_t elementCount = static_cast<size_t>(inputALen);
+        auto validationVm = createVm();
+        if (!validationVm) {
             return false;
         }
 
-        if (!vm->loadProgram(loadedPath_)) {
+        if (!validationVm->loadProgram(loadedPath_)) {
             lastError_ = "Failed to reload the uploaded PTX program.";
             return false;
         }
 
-        const PTXProgram& program = vm->getExecutor().getProgram();
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
         const PTXFunction* kernel = resolveKernel(program, kernelName);
         if (kernel == nullptr) {
             lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
@@ -176,46 +177,67 @@ public:
             return false;
         }
 
-        const size_t elementCount = static_cast<size_t>(inputALen);
-        const size_t bytes = elementCount * sizeof(float);
-
-        const CUdeviceptr inputAPtr = vm->allocateMemory(bytes);
-        const CUdeviceptr inputBPtr = vm->allocateMemory(bytes);
-        const CUdeviceptr outputPtr = vm->allocateMemory(bytes);
-
-        if (!vm->copyMemoryHtoD(inputAPtr, inputA, bytes)) {
-            lastError_ = "Failed to copy Input A into VM memory.";
-            return false;
-        }
-
-        if (!vm->copyMemoryHtoD(inputBPtr, inputB, bytes)) {
-            lastError_ = "Failed to copy Input B into VM memory.";
-            return false;
-        }
-
-        std::vector<KernelParameter> params;
-        params.push_back({inputAPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
-        params.push_back({inputBPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
-        params.push_back({outputPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
-        params.push_back({
-            static_cast<CUdeviceptr>(elementCount),
-            kernel->parameters[3].size,
-            kernel->parameters[3].offset,
-        });
-
-        vm->setKernelParameters(params);
-        vm->getExecutor().setGridDimensions(1, 1, 1, 32, 1, 1);
-
-        if (!vm->run()) {
-            lastError_ = "Kernel execution failed inside the PTX VM.";
-            return false;
-        }
-
+        // The current PTX VM executes one representative lane per warp. To keep
+        // standard thread-indexed vector-add kernels usable in the browser judge,
+        // replay the kernel once per output element using one-float slices.
         lastResult_.assign(elementCount, 0.0f);
-        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, bytes)) {
-            lastError_ = "Kernel executed, but reading the result buffer failed.";
-            lastResult_.clear();
-            return false;
+
+        for (size_t i = 0; i < elementCount; ++i) {
+            auto vm = createVm();
+            if (!vm) {
+                return false;
+            }
+
+            if (!vm->loadProgram(loadedPath_)) {
+                lastError_ = "Failed to reload the uploaded PTX program.";
+                lastResult_.clear();
+                return false;
+            }
+
+            const size_t bytes = sizeof(float);
+            const CUdeviceptr inputAPtr = vm->allocateMemory(bytes);
+            const CUdeviceptr inputBPtr = vm->allocateMemory(bytes);
+            const CUdeviceptr outputPtr = vm->allocateMemory(bytes);
+
+            if (!vm->copyMemoryHtoD(inputAPtr, &inputA[i], bytes)) {
+                lastError_ = "Failed to copy Input A into VM memory.";
+                lastResult_.clear();
+                return false;
+            }
+
+            if (!vm->copyMemoryHtoD(inputBPtr, &inputB[i], bytes)) {
+                lastError_ = "Failed to copy Input B into VM memory.";
+                lastResult_.clear();
+                return false;
+            }
+
+            std::vector<KernelParameter> params;
+            params.push_back({inputAPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+            params.push_back({inputBPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+            params.push_back({outputPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+            params.push_back({
+                static_cast<CUdeviceptr>(1),
+                kernel->parameters[3].size,
+                kernel->parameters[3].offset,
+            });
+
+            vm->setKernelParameters(params);
+            vm->getExecutor().setGridDimensions(1, 1, 1, 32, 1, 1);
+
+            if (!vm->run()) {
+                lastError_ = "Kernel execution failed inside the PTX VM.";
+                lastResult_.clear();
+                return false;
+            }
+
+            float outputValue = 0.0f;
+            if (!vm->copyMemoryDtoH(&outputValue, outputPtr, bytes)) {
+                lastError_ = "Kernel executed, but reading the result buffer failed.";
+                lastResult_.clear();
+                return false;
+            }
+
+            lastResult_[i] = outputValue;
         }
 
         return true;

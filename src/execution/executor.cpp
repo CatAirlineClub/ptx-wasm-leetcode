@@ -451,6 +451,8 @@ public:
                 return executeSUB(instr);
             case InstructionTypes::MUL:
                 return executeMUL(instr);
+            case InstructionTypes::MAD:
+                return executeMAD(instr);
             case InstructionTypes::DIV:
                 return executeDIV(instr);
             case InstructionTypes::REM:
@@ -577,6 +579,39 @@ public:
         }
         int64_t result = src0 % src1;
         storeRegisterValue(instr.dest.registerIndex, static_cast<uint64_t>(result));
+        m_currentInstructionIndex++;
+        return true;
+    }
+
+    bool executeMAD(const DecodedInstruction& instr) {
+        if (instr.dest.type != OperandType::REGISTER || instr.sources.size() != 3) {
+            std::cerr << "Invalid MAD instruction format" << std::endl;
+            m_currentInstructionIndex++;
+            return true;
+        }
+
+        const uint64_t src0 = static_cast<uint64_t>(getSourceValue(instr.sources[0]));
+        const uint64_t src1 = static_cast<uint64_t>(getSourceValue(instr.sources[1]));
+        const uint64_t src2 = static_cast<uint64_t>(getSourceValue(instr.sources[2]));
+        uint64_t result = 0;
+
+        switch (instr.dataType) {
+            case DataType::S32:
+            case DataType::U32: {
+                const uint32_t a = static_cast<uint32_t>(src0);
+                const uint32_t b = static_cast<uint32_t>(src1);
+                const uint32_t c = static_cast<uint32_t>(src2);
+                result = static_cast<uint64_t>(a * b + c);
+                break;
+            }
+            case DataType::S64:
+            case DataType::U64:
+            default:
+                result = src0 * src1 + src2;
+                break;
+        }
+
+        storeRegisterValue(instr.dest.registerIndex, result);
         m_currentInstructionIndex++;
         return true;
     }
@@ -1532,9 +1567,30 @@ public:
             uint32_t src2 = static_cast<uint32_t>(src2_val);
             
             switch (instr.compareOp) {
+                case CompareOp::LT:
                 case CompareOp::LO: result = (src1 < src2); break;
+                case CompareOp::LE:
                 case CompareOp::LS: result = (src1 <= src2); break;
+                case CompareOp::GT:
                 case CompareOp::HI: result = (src1 > src2); break;
+                case CompareOp::GE:
+                case CompareOp::HS: result = (src1 >= src2); break;
+                case CompareOp::EQ: result = (src1 == src2); break;
+                case CompareOp::NE: result = (src1 != src2); break;
+                default: break;
+            }
+        } else if (instr.dataType == DataType::U64) {
+            uint64_t src1 = static_cast<uint64_t>(src1_val);
+            uint64_t src2 = static_cast<uint64_t>(src2_val);
+
+            switch (instr.compareOp) {
+                case CompareOp::LT:
+                case CompareOp::LO: result = (src1 < src2); break;
+                case CompareOp::LE:
+                case CompareOp::LS: result = (src1 <= src2); break;
+                case CompareOp::GT:
+                case CompareOp::HI: result = (src1 > src2); break;
+                case CompareOp::GE:
                 case CompareOp::HS: result = (src1 >= src2); break;
                 case CompareOp::EQ: result = (src1 == src2); break;
                 case CompareOp::NE: result = (src1 != src2); break;

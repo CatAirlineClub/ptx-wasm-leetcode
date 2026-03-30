@@ -98,6 +98,12 @@ if(EMSCRIPTEN)
     set(PTX_WEB_INDEX_HTML "${BARRACUDA_WEB_OUTPUT_DIR}/index.html")
     set(LEETGPU_CATALOG_JS "${BARRACUDA_WEB_OUTPUT_DIR}/challenges.generated.js")
     set(CODEMIRROR_BUNDLE_JS "${BARRACUDA_WEB_OUTPUT_DIR}/codemirror_bundle.js")
+    set(KATEX_CSS "${BARRACUDA_WEB_OUTPUT_DIR}/katex.min.css")
+    set(KATEX_JS "${BARRACUDA_WEB_OUTPUT_DIR}/katex.min.js")
+    set(KATEX_AUTORENDER_JS "${BARRACUDA_WEB_OUTPUT_DIR}/auto-render.min.js")
+    set(KATEX_FONTS_DIR "${BARRACUDA_WEB_OUTPUT_DIR}/fonts")
+    set(KATEX_FONTS_STAMP "${BARRACUDA_WEB_OUTPUT_DIR}/.katex-fonts.stamp")
+    file(GLOB KATEX_FONT_FILES "${CMAKE_SOURCE_DIR}/web/fonts/*")
     set(BARRACUDA_WEB_SOURCES
         ${CMAKE_SOURCE_DIR}/web/barracuda_web_bridge.c
         ${BARRACUDA_ROOT}/src/fe/bc_err.c
@@ -144,7 +150,14 @@ if(EMSCRIPTEN)
     add_custom_target(barracuda_web DEPENDS "${BARRACUDA_WEB_JS}")
 
     add_custom_command(
-        OUTPUT "${PTX_WEB_INDEX_HTML}" "${LEETGPU_CATALOG_JS}" "${CODEMIRROR_BUNDLE_JS}"
+        OUTPUT
+            "${PTX_WEB_INDEX_HTML}"
+            "${LEETGPU_CATALOG_JS}"
+            "${CODEMIRROR_BUNDLE_JS}"
+            "${KATEX_CSS}"
+            "${KATEX_JS}"
+            "${KATEX_AUTORENDER_JS}"
+            "${KATEX_FONTS_STAMP}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${BARRACUDA_WEB_OUTPUT_DIR}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/web/index.html
@@ -155,15 +168,42 @@ if(EMSCRIPTEN)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/web/codemirror_bundle.js
             "${CODEMIRROR_BUNDLE_JS}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/web/katex.min.css
+            "${KATEX_CSS}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/web/katex.min.js
+            "${KATEX_JS}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/web/auto-render.min.js
+            "${KATEX_AUTORENDER_JS}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/web/fonts
+            "${KATEX_FONTS_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E touch "${KATEX_FONTS_STAMP}"
         DEPENDS
             ${CMAKE_SOURCE_DIR}/web/index.html
             ${CMAKE_SOURCE_DIR}/web/challenges.generated.js
             ${CMAKE_SOURCE_DIR}/web/codemirror_bundle.js
+            ${CMAKE_SOURCE_DIR}/web/katex.min.css
+            ${CMAKE_SOURCE_DIR}/web/katex.min.js
+            ${CMAKE_SOURCE_DIR}/web/auto-render.min.js
+            ${KATEX_FONT_FILES}
         COMMENT "Copying browser UI assets"
         VERBATIM
     )
 
-    add_custom_target(ptx_web_ui DEPENDS "${PTX_WEB_INDEX_HTML}" "${LEETGPU_CATALOG_JS}" "${CODEMIRROR_BUNDLE_JS}")
+    add_custom_target(
+        ptx_web_ui
+        DEPENDS
+            "${PTX_WEB_INDEX_HTML}"
+            "${LEETGPU_CATALOG_JS}"
+            "${CODEMIRROR_BUNDLE_JS}"
+            "${KATEX_CSS}"
+            "${KATEX_JS}"
+            "${KATEX_AUTORENDER_JS}"
+            "${KATEX_FONTS_STAMP}"
+    )
 
     add_executable(ptx_web
         web/ptx_web_bridge.cpp

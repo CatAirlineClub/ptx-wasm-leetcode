@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PTX Judge Arena</title>
   <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="katex.min.css" />
   <style>
     :root {
       --bg: #0d1117;
@@ -478,6 +479,21 @@
 
     .problem-spec a {
       color: #9fd0ff;
+    }
+
+    .problem-spec .katex-display,
+    .example-body .katex-display,
+    .hint-box .katex-display {
+      margin: 14px 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 2px;
+    }
+
+    .problem-spec .katex,
+    .example-body .katex,
+    .hint-box .katex {
+      color: inherit;
     }
 
     .bullet-list {
@@ -1063,6 +1079,8 @@
   </div>
 
   <script src="challenges.generated.js"></script>
+  <script src="katex.min.js"></script>
+  <script src="auto-render.min.js"></script>
   <script src="codemirror_bundle.js"></script>
   <script>
     const MAX_CHALLENGE_ID = 74;
@@ -1681,6 +1699,28 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       return badge;
     }
 
+    function applyMathTypesetting(root) {
+      if (!root || typeof window.renderMathInElement !== "function") {
+        return;
+      }
+
+      try {
+        window.renderMathInElement(root, {
+          throwOnError: false,
+          strict: "ignore",
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "\\[", right: "\\]", display: true },
+            { left: "\\(", right: "\\)", display: false },
+            { left: "$", right: "$", display: false }
+          ],
+          ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "option"]
+        });
+      } catch (error) {
+        console.error("Failed to typeset challenge math.", error);
+      }
+    }
+
     function setHintBox(id, title, text) {
       const box = document.getElementById(id);
       if (!box) {
@@ -1695,6 +1735,7 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       const body = document.createElement("div");
       body.textContent = text;
       box.appendChild(body);
+      applyMathTypesetting(box);
     }
 
     function clearTestcaseEditor() {
@@ -1843,7 +1884,9 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
 
       document.getElementById("problem-id").textContent = problem.id;
       document.getElementById("problem-title").textContent = problem.title;
-      document.getElementById("problem-spec").innerHTML = problem.specHtml || "<p>No challenge description is available.</p>";
+      const problemSpec = document.getElementById("problem-spec");
+      problemSpec.innerHTML = problem.specHtml || "<p>No challenge description is available.</p>";
+      applyMathTypesetting(problemSpec);
       document.getElementById("starter-code").textContent =
         problem.starterCode.trim() || "// This challenge does not provide a CUDA starter in the API.";
       document.getElementById("custom-testcase-subtle").textContent = problem.testcaseHint;
@@ -1926,6 +1969,8 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       grid.querySelectorAll("[data-example-index]").forEach((button) => {
         button.addEventListener("click", () => useExample(Number.parseInt(button.dataset.exampleIndex, 10)));
       });
+
+      applyMathTypesetting(grid);
     }
 
     function renderExampleButtons() {

@@ -97,6 +97,7 @@ if(EMSCRIPTEN)
     set(BARRACUDA_WEB_JS "${BARRACUDA_WEB_OUTPUT_DIR}/barracuda.js")
     set(PTX_WEB_INDEX_HTML "${BARRACUDA_WEB_OUTPUT_DIR}/index.html")
     set(LEETGPU_CATALOG_JS "${BARRACUDA_WEB_OUTPUT_DIR}/challenges.generated.js")
+    set(CODEMIRROR_BUNDLE_JS "${BARRACUDA_WEB_OUTPUT_DIR}/codemirror_bundle.js")
     set(BARRACUDA_WEB_SOURCES
         ${CMAKE_SOURCE_DIR}/web/barracuda_web_bridge.c
         ${BARRACUDA_ROOT}/src/fe/bc_err.c
@@ -143,7 +144,7 @@ if(EMSCRIPTEN)
     add_custom_target(barracuda_web DEPENDS "${BARRACUDA_WEB_JS}")
 
     add_custom_command(
-        OUTPUT "${PTX_WEB_INDEX_HTML}" "${LEETGPU_CATALOG_JS}"
+        OUTPUT "${PTX_WEB_INDEX_HTML}" "${LEETGPU_CATALOG_JS}" "${CODEMIRROR_BUNDLE_JS}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${BARRACUDA_WEB_OUTPUT_DIR}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/web/index.html
@@ -151,14 +152,18 @@ if(EMSCRIPTEN)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/web/challenges.generated.js
             "${LEETGPU_CATALOG_JS}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/web/codemirror_bundle.js
+            "${CODEMIRROR_BUNDLE_JS}"
         DEPENDS
             ${CMAKE_SOURCE_DIR}/web/index.html
             ${CMAKE_SOURCE_DIR}/web/challenges.generated.js
+            ${CMAKE_SOURCE_DIR}/web/codemirror_bundle.js
         COMMENT "Copying browser UI assets"
         VERBATIM
     )
 
-    add_custom_target(ptx_web_ui DEPENDS "${PTX_WEB_INDEX_HTML}")
+    add_custom_target(ptx_web_ui DEPENDS "${PTX_WEB_INDEX_HTML}" "${LEETGPU_CATALOG_JS}" "${CODEMIRROR_BUNDLE_JS}")
 
     add_executable(ptx_web
         web/ptx_web_bridge.cpp

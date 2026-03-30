@@ -157,7 +157,11 @@
       gap: 16px;
     }
 
-    .app-shell.editor-focus .source-editor {
+    .app-shell.editor-focus .source-editor,
+    .app-shell.editor-focus .editor-shell,
+    .app-shell.editor-focus .editor-shell .cm-editor,
+    .app-shell.editor-focus .editor-shell .cm-scroller,
+    .app-shell.editor-focus .editor-shell .cm-gutters {
       min-height: clamp(420px, 64vh, 960px);
     }
 
@@ -610,6 +614,40 @@
       tab-size: 4;
     }
 
+    .field .editor-shell {
+      width: 100%;
+      min-height: 280px;
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+      background: #0f141b;
+      color: var(--text);
+      overflow: hidden;
+      transition: border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+    }
+
+    .field .editor-shell:focus-within {
+      border-color: rgba(88, 166, 255, 0.55);
+      box-shadow: 0 0 0 4px rgba(88, 166, 255, 0.10);
+    }
+
+    .field .editor-shell.disabled {
+      opacity: 0.72;
+    }
+
+    .field .editor-shell .cm-editor,
+    .field .editor-shell .cm-scroller,
+    .field .editor-shell .cm-gutters {
+      min-height: 280px;
+    }
+
+    .field .editor-shell .cm-editor {
+      background: transparent;
+    }
+
+    .source-editor-fallback.is-code-editor-hidden {
+      display: none;
+    }
+
     .field textarea.ptx-preview {
       min-height: 180px;
       opacity: 0.94;
@@ -1025,6 +1063,7 @@
   </div>
 
   <script src="challenges.generated.js"></script>
+  <script src="codemirror_bundle.js"></script>
   <script>
     const MAX_CHALLENGE_ID = 74;
     const SUPPORTED_PROBLEM_OVERRIDES = {
@@ -1129,9 +1168,93 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
     let barraModule = null;
     let barraModulePromise = null;
     let editorFocusEnabled = false;
+    let cudaSourceEditor = null;
 
     function getCurrentProblem() {
       return PROBLEMS[currentProblemIndex] || null;
+    }
+
+    function getCudaSourceTextarea() {
+      return document.getElementById("cuda-source");
+    }
+
+    function initializeCudaSourceEditor() {
+      const textarea = getCudaSourceTextarea();
+      if (!textarea || cudaSourceEditor || !window.PTXCodeEditor?.create) {
+        return;
+      }
+
+      try {
+        cudaSourceEditor = window.PTXCodeEditor.create({
+          textarea,
+          placeholder: textarea.placeholder || "",
+          disabled: textarea.disabled
+        });
+
+        const sourceLabel = document.querySelector('label[for="cuda-source"]');
+        sourceLabel?.addEventListener("click", (event) => {
+          event.preventDefault();
+          focusCudaSourceEditor();
+        });
+      } catch (error) {
+        console.error("Failed to initialize the CUDA editor.", error);
+        cudaSourceEditor = null;
+      }
+    }
+
+    function getCudaSourceValue() {
+      if (cudaSourceEditor) {
+        return cudaSourceEditor.getValue();
+      }
+
+      return getCudaSourceTextarea()?.value ?? "";
+    }
+
+    function setCudaSourceValue(text) {
+      const nextValue = String(text ?? "");
+      if (cudaSourceEditor) {
+        cudaSourceEditor.setValue(nextValue);
+        return;
+      }
+
+      const textarea = getCudaSourceTextarea();
+      if (textarea) {
+        textarea.value = nextValue;
+      }
+    }
+
+    function focusCudaSourceEditor() {
+      if (cudaSourceEditor) {
+        cudaSourceEditor.focus();
+        return;
+      }
+
+      getCudaSourceTextarea()?.focus();
+    }
+
+    function setCudaSourceEditorDisabled(disabled) {
+      if (cudaSourceEditor) {
+        cudaSourceEditor.setDisabled(disabled);
+        return;
+      }
+
+      const textarea = getCudaSourceTextarea();
+      if (textarea) {
+        textarea.disabled = Boolean(disabled);
+      }
+    }
+
+    function setCudaSourceEditorPlaceholder(text) {
+      const placeholderText = String(text ?? "");
+      if (cudaSourceEditor) {
+        cudaSourceEditor.setPlaceholder(placeholderText);
+        return;
+      }
+
+      const textarea = getCudaSourceTextarea();
+      if (textarea) {
+        textarea.placeholder = placeholderText;
+      }
     }
 
     function setEditorFocus(enabled, pushMessage = true) {
@@ -1161,7 +1284,7 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       }
 
       if (editorFocusEnabled) {
-        document.getElementById("cuda-source")?.focus();
+        focusCudaSourceEditor();
       }
 
       if (pushMessage) {
@@ -1850,7 +1973,6 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       const resetButton = document.getElementById("reset-button");
       const runButton = document.getElementById("run-button");
       const fileInput = document.getElementById("cuda-file");
-      const sourceEditor = document.getElementById("cuda-source");
       const compileButton = document.getElementById("compile-button");
       const sourceResetButton = document.getElementById("source-reset-button");
 
@@ -1882,12 +2004,14 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       matrixK.disabled = !canRun || !isMatrix;
 
       fileInput.disabled = !canCompile;
-      sourceEditor.disabled = !canCompile;
+      setCudaSourceEditorDisabled(!canCompile);
       compileButton.disabled = !canCompile;
       sourceResetButton.disabled = !canCompile;
-      sourceEditor.placeholder = canCompile
-        ? "Paste or load a .cu submission here."
-        : "This challenge does not have a browser CUDA compile flow yet.";
+      setCudaSourceEditorPlaceholder(
+        canCompile
+          ? "Paste or load a .cu submission here."
+          : "This challenge does not have a browser CUDA compile flow yet."
+      );
 
       resetButton.disabled = !canRun || problem.examples.length === 0;
       runButton.disabled = true;
@@ -1895,13 +2019,12 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
     }
 
     function resetSourceEditor(pushMessage = true) {
-      const editor = document.getElementById("cuda-source");
       const problem = getCurrentProblem();
-      if (!editor || !problem) {
+      if (!problem) {
         return;
       }
 
-      editor.value = problem.starterCode;
+      setCudaSourceValue(problem.starterCode);
       if (pushMessage) {
         pushLog(problem.supportsCudaCompile
           ? "Reset the CUDA editor to the starter code."
@@ -2172,7 +2295,7 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
 
       try {
         const content = await file.text();
-        document.getElementById("cuda-source").value = content;
+        setCudaSourceValue(content);
         pushLog(`Loaded CUDA source file: ${file.name}`, "runtime");
       } catch (error) {
         pushLog(`File read failed: ${error.message}`, "stderr");
@@ -2194,7 +2317,7 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
         return;
       }
 
-      const source = document.getElementById("cuda-source").value;
+      const source = getCudaSourceValue();
       if (!source.trim()) {
         pushLog("CUDA source is empty. Paste code or import a .cu file first.", "stderr");
         return;
@@ -2380,6 +2503,7 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
 
     window.addEventListener("DOMContentLoaded", () => {
       setupTabs();
+      initializeCudaSourceEditor();
       restoreEditorFocusPreference();
       initializeCatalog();
       selectProblem(0, false);

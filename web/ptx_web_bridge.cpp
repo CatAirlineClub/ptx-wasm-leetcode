@@ -426,6 +426,163 @@ public:
         return true;
     }
 
+    bool runMatrixTransposeDemo(const std::string& kernelName,
+                                const float* inputA,
+                                int inputALen,
+                                int rows,
+                                int cols) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputA == nullptr) {
+            lastError_ = "Input matrix buffer must not be null.";
+            return false;
+        }
+
+        if (rows <= 0 || cols <= 0) {
+            lastError_ = "Input matrix rows and cols must both be positive integers.";
+            return false;
+        }
+
+        const size_t expectedInputLen =
+            static_cast<size_t>(rows) * static_cast<size_t>(cols);
+        if (static_cast<size_t>(inputALen) != expectedInputLen) {
+            lastError_ = "Input matrix length does not match the provided rows x cols dimensions.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isMatrixTransposeSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u32, .u32), such as matrix transpose.";
+            return false;
+        }
+
+        constexpr unsigned int kBlockDimX = 16;
+        constexpr unsigned int kBlockDimY = 16;
+        const unsigned int gridDimX =
+            static_cast<unsigned int>((cols + static_cast<int>(kBlockDimX) - 1) / static_cast<int>(kBlockDimX));
+        const unsigned int gridDimY =
+            static_cast<unsigned int>((rows + static_cast<int>(kBlockDimY) - 1) / static_cast<int>(kBlockDimY));
+
+        const size_t inputBytes = expectedInputLen * sizeof(float);
+        const size_t outputElementCount = expectedInputLen;
+        const size_t outputBytes = outputElementCount * sizeof(float);
+        const std::vector<float> zeroOutput(outputElementCount, 0.0f);
+        lastResult_.assign(outputElementCount, 0.0f);
+
+        for (int row = 0; row < rows; ++row) {
+            for (int col = 0; col < cols; ++col) {
+                auto vm = createVm();
+                if (!vm) {
+                    return false;
+                }
+
+                if (!vm->loadProgram(loadedPath_)) {
+                    lastError_ = "Failed to reload the uploaded PTX program.";
+                    lastResult_.clear();
+                    return false;
+                }
+
+                const CUdeviceptr inputPtr = vm->allocateMemory(inputBytes);
+                const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+                if (!vm->copyMemoryHtoD(inputPtr, inputA, inputBytes)) {
+                    lastError_ = "Failed to copy the input matrix into VM memory.";
+                    lastResult_.clear();
+                    return false;
+                }
+
+                if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+                    lastError_ = "Failed to initialize the output matrix in VM memory.";
+                    lastResult_.clear();
+                    return false;
+                }
+
+                std::vector<KernelParameter> params;
+                params.push_back({inputPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+                params.push_back({outputPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+                params.push_back({
+                    static_cast<CUdeviceptr>(rows),
+                    kernel->parameters[2].size,
+                    kernel->parameters[2].offset,
+                });
+                params.push_back({
+                    static_cast<CUdeviceptr>(cols),
+                    kernel->parameters[3].size,
+                    kernel->parameters[3].offset,
+                });
+
+                vm->setKernelParameters(params);
+
+                PTXExecutor& executor = vm->getExecutor();
+                executor.setGridDimensions(gridDimX, gridDimY, 1, kBlockDimX, kBlockDimY, 1);
+
+                ThreadExecutionContext context;
+                context.gridDimX = gridDimX;
+                context.gridDimY = gridDimY;
+                context.gridDimZ = 1;
+                context.blockDimX = kBlockDimX;
+                context.blockDimY = kBlockDimY;
+                context.blockDimZ = 1;
+                context.blockIdxX = static_cast<unsigned int>(col / static_cast<int>(kBlockDimX));
+                context.blockIdxY = static_cast<unsigned int>(row / static_cast<int>(kBlockDimY));
+                context.blockIdxZ = 0;
+                context.threadIdxX = static_cast<unsigned int>(col % static_cast<int>(kBlockDimX));
+                context.threadIdxY = static_cast<unsigned int>(row % static_cast<int>(kBlockDimY));
+                context.threadIdxZ = 0;
+                context.warpSize = 32;
+                context.laneId = static_cast<unsigned int>(
+                    ((context.threadIdxY * kBlockDimX) + context.threadIdxX) % context.warpSize);
+                executor.setSingleThreadExecutionContext(context);
+
+                if (!vm->run()) {
+                    lastError_ = "Kernel execution failed inside the PTX VM.";
+                    lastResult_.clear();
+                    return false;
+                }
+
+                const size_t outputIndex =
+                    static_cast<size_t>(col) * static_cast<size_t>(rows) + static_cast<size_t>(row);
+                const CUdeviceptr outputCellPtr =
+                    outputPtr + static_cast<CUdeviceptr>(outputIndex * sizeof(float));
+
+                float outputValue = 0.0f;
+                if (!vm->copyMemoryDtoH(&outputValue, outputCellPtr, sizeof(float))) {
+                    lastError_ = "Kernel executed, but reading the transposed output failed.";
+                    lastResult_.clear();
+                    return false;
+                }
+
+                lastResult_[outputIndex] = outputValue;
+            }
+        }
+
+        return true;
+    }
+
     int getResultCount() const {
         return static_cast<int>(lastResult_.size());
     }
@@ -510,6 +667,19 @@ private:
                isScalar32BitInteger(kernel.parameters[5]);
     }
 
+    bool isMatrixTransposeSignature(const PTXFunction& kernel) const {
+        if (kernel.parameters.size() != 4) {
+            return false;
+        }
+
+        return kernel.parameters[0].isPointer &&
+               kernel.parameters[1].isPointer &&
+               !kernel.parameters[2].isPointer &&
+               !kernel.parameters[3].isPointer &&
+               isScalar32BitInteger(kernel.parameters[2]) &&
+               isScalar32BitInteger(kernel.parameters[3]);
+    }
+
     bool isScalar32BitInteger(const PTXParameter& param) const {
         return param.type == ".u32" || param.type == ".s32";
     }
@@ -589,6 +759,20 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_matrix_multiplication(const char* kernelName,
         rowsM,
         sharedN,
         colsK) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_matrix_transpose(const char* kernelName,
+                                                    const float* inputA,
+                                                    int inputALen,
+                                                    int rows,
+                                                    int cols) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runMatrixTransposeDemo(
+        chosenKernel,
+        inputA,
+        inputALen,
+        rows,
+        cols) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int ptxvm_get_result_count() {

@@ -881,7 +881,7 @@
           <div class="eyebrow">Problem Set</div>
           <h2>LeetGPU Browser Catalog</h2>
           <p class="muted">
-            左边是 1 到 74 题的题库目录。当前浏览器 judge 已支持第 1 题和第 2 题完整运行，其他题先提供题面与 CUDA starter 预览，能否编译和运行会在界面里明确标注。
+            左边是 1 到 74 题的题库目录。当前浏览器 judge 已支持第 1 题、第 2 题和第 3 题完整运行，其他题先提供题面与 CUDA starter 预览，能否编译和运行会在界面里明确标注。
           </p>
           <ul id="problem-list" class="problem-list"></ul>
         </div>
@@ -1017,23 +1017,23 @@
                 <textarea id="input-a"></textarea>
               </div>
 
-              <div class="field">
+              <div id="input-b-field" class="field">
                 <label id="input-b-label" for="input-b">Vector B</label>
                 <textarea id="input-b"></textarea>
               </div>
 
               <div id="matrix-dims" class="dimension-grid" hidden>
                 <div class="field">
-                  <label for="matrix-m">Rows M</label>
+                  <label id="matrix-m-label" for="matrix-m">Rows M</label>
                   <input id="matrix-m" type="number" min="1" step="1" />
                 </div>
 
                 <div class="field">
-                  <label for="matrix-n">Shared N</label>
+                  <label id="matrix-n-label" for="matrix-n">Shared N</label>
                   <input id="matrix-n" type="number" min="1" step="1" />
                 </div>
 
-                <div class="field">
+                <div id="matrix-k-field" class="field">
                   <label for="matrix-k">Cols K</label>
                   <input id="matrix-k" type="number" min="1" step="1" />
                 </div>
@@ -1172,6 +1172,65 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
             inputA: [1.0, 2.0, 3.0],
             inputB: [4.0, 5.0, 6.0],
             expected: [32.0]
+          }
+        ]
+      },
+      3: {
+        kind: "matrix-transpose",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract:
+          "The browser judge expects a PTX entry kernel with two pointer parameters plus 32-bit rows and cols scalars. It treats the input as a rows x cols row-major matrix and validates the output as the cols x rows transpose.",
+        submissionHint:
+          "Write or import a .cu submission on the right side. For the browser compiler, prefer assigning dim3.x/y/z fields instead of using dim3(16, 16) constructors.",
+        testcaseHint:
+          "Paste the input matrix in row-major order, then provide the input rows and cols.",
+        testcaseHelp:
+          "Input Matrix A must contain rows x cols floats. The judge validates the output as a cols x rows row-major transpose.",
+        resultTitle: "Output Matrix A^T",
+        resultSubtitle:
+          "The final result must be stored in the output matrix. The judge compares it to a CPU row-major transpose result.",
+        starterCode: `#include <cuda_runtime.h>
+
+__global__ void matrix_transpose_kernel(const float* input, float* output, int rows, int cols) {
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    if (row < rows && col < cols) {
+        // TODO: write the transposed element into output[col * rows + row].
+        // output[col * rows + row] = input[row * cols + col];
+    }
+}
+
+// input, output are device pointers (i.e. pointers to memory on the GPU)
+extern "C" void solve(const float* input, float* output, int rows, int cols) {
+    dim3 threadsPerBlock;
+    threadsPerBlock.x = 16;
+    threadsPerBlock.y = 16;
+    threadsPerBlock.z = 1;
+
+    dim3 blocksPerGrid;
+    blocksPerGrid.x = (cols + threadsPerBlock.x - 1) / threadsPerBlock.x;
+    blocksPerGrid.y = (rows + threadsPerBlock.y - 1) / threadsPerBlock.y;
+    blocksPerGrid.z = 1;
+
+    matrix_transpose_kernel<<<blocksPerGrid, threadsPerBlock>>>(input, output, rows, cols);
+    cudaDeviceSynchronize();
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rows: 2,
+            cols: 3,
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            expected: [1.0, 4.0, 2.0, 5.0, 3.0, 6.0]
+          },
+          {
+            label: "Example 2",
+            rows: 3,
+            cols: 1,
+            inputA: [1.0, 2.0, 3.0],
+            expected: [1.0, 2.0, 3.0]
           }
         ]
       }
@@ -1687,6 +1746,18 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       return result;
     }
 
+    function buildMatrixTransposeExpected(inputA, rows, cols) {
+      const result = new Array(rows * cols).fill(0);
+
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          result[col * rows + row] = inputA[row * cols + col];
+        }
+      }
+
+      return result;
+    }
+
     function arraysAlmostEqual(actual, expected, tolerance = 1e-4) {
       return actual.length === expected.length &&
         actual.every((value, index) => Math.abs(value - expected[index]) <= tolerance);
@@ -1799,12 +1870,16 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
 
       currentExampleIndex = index;
       document.getElementById("input-a").value = example.inputA.join(", ");
-      document.getElementById("input-b").value = example.inputB.join(", ");
+      document.getElementById("input-b").value = Array.isArray(example.inputB) ? example.inputB.join(", ") : "";
 
       if (problem.kind === "matrix-multiplication") {
         document.getElementById("matrix-m").value = String(example.rowsM);
         document.getElementById("matrix-n").value = String(example.sharedN);
         document.getElementById("matrix-k").value = String(example.colsK);
+      } else if (problem.kind === "matrix-transpose") {
+        document.getElementById("matrix-m").value = String(example.rows);
+        document.getElementById("matrix-n").value = String(example.cols);
+        document.getElementById("matrix-k").value = "";
       }
 
       if (pushMessage) {
@@ -1946,6 +2021,11 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
             <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
             <span class="vector-line">Output: C = ${formatVector(example.expected)}</span>
           `;
+        } else if (problem.kind === "matrix-transpose") {
+          bodyHtml = `
+            <span class="vector-line">Input:  A (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
+            <span class="vector-line">Output: A^T (${example.cols} x ${example.rows}) = ${formatMatrixInline(example.expected, example.cols, example.rows)}</span>
+          `;
         } else {
           bodyHtml = `
             <span class="vector-line">Input:  A (${example.rowsM} x ${example.sharedN}) = ${formatMatrixInline(example.inputA, example.rowsM, example.sharedN)}</span>
@@ -2005,16 +2085,22 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
         return;
       }
 
-      const isMatrix = problem.kind === "matrix-multiplication";
+      const isMatrixMultiply = problem.kind === "matrix-multiplication";
+      const isTranspose = problem.kind === "matrix-transpose";
+      const usesMatrixDims = isMatrixMultiply || isTranspose;
       const canRun = problem.supportsRun;
       const canCompile = problem.supportsCudaCompile;
       const matrixDims = document.getElementById("matrix-dims");
       const testcaseHelp = document.getElementById("testcase-help");
       const inputA = document.getElementById("input-a");
       const inputB = document.getElementById("input-b");
+      const inputBField = document.getElementById("input-b-field");
       const matrixM = document.getElementById("matrix-m");
       const matrixN = document.getElementById("matrix-n");
       const matrixK = document.getElementById("matrix-k");
+      const matrixKField = document.getElementById("matrix-k-field");
+      const matrixMLabel = document.getElementById("matrix-m-label");
+      const matrixNLabel = document.getElementById("matrix-n-label");
       const resetButton = document.getElementById("reset-button");
       const runButton = document.getElementById("run-button");
       const fileInput = document.getElementById("cuda-file");
@@ -2024,29 +2110,44 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       document.getElementById("input-a-label").textContent =
         problem.kind === "vector-add"
           ? "Vector A"
-          : isMatrix
+          : isMatrixMultiply
             ? "Matrix A (row-major)"
+            : isTranspose
+              ? "Input Matrix A (row-major)"
             : "Input A";
       document.getElementById("input-b-label").textContent =
         problem.kind === "vector-add"
           ? "Vector B"
-          : isMatrix
+          : isMatrixMultiply
             ? "Matrix B (row-major)"
+            : isTranspose
+              ? "Unused"
             : "Input B";
 
+      matrixMLabel.textContent = isTranspose ? "Input Rows" : "Rows M";
+      matrixNLabel.textContent = isTranspose ? "Input Cols" : "Shared N";
+
       inputA.placeholder = canRun
-        ? (problem.kind === "vector-add" ? "1.0, 2.0, 3.0" : isMatrix ? "1.0, 2.0, 3.0, 4.0" : "Input A")
+        ? (problem.kind === "vector-add"
+          ? "1.0, 2.0, 3.0"
+          : isMatrixMultiply
+            ? "1.0, 2.0, 3.0, 4.0"
+            : isTranspose
+              ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
+              : "Input A")
         : "Browser judge is not available for this challenge.";
       inputB.placeholder = canRun
-        ? (problem.kind === "vector-add" ? "4.0, 5.0, 6.0" : isMatrix ? "5.0, 6.0, 7.0, 8.0" : "Input B")
+        ? (problem.kind === "vector-add" ? "4.0, 5.0, 6.0" : isMatrixMultiply ? "5.0, 6.0, 7.0, 8.0" : "")
         : "Browser judge is not available for this challenge.";
 
       inputA.disabled = !canRun;
-      inputB.disabled = !canRun;
-      matrixDims.hidden = !isMatrix;
-      matrixM.disabled = !canRun || !isMatrix;
-      matrixN.disabled = !canRun || !isMatrix;
-      matrixK.disabled = !canRun || !isMatrix;
+      inputB.disabled = !canRun || isTranspose;
+      inputBField.hidden = isTranspose;
+      matrixDims.hidden = !usesMatrixDims;
+      matrixKField.hidden = !isMatrixMultiply;
+      matrixM.disabled = !canRun || !usesMatrixDims;
+      matrixN.disabled = !canRun || !usesMatrixDims;
+      matrixK.disabled = !canRun || !isMatrixMultiply;
 
       fileInput.disabled = !canCompile;
       setCudaSourceEditorDisabled(!canCompile);
@@ -2182,7 +2283,9 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       }
 
       summary.innerHTML = '<span class="pill">Waiting for a run</span>';
-      vector.textContent = "C = [ waiting for a run ]";
+      vector.textContent = problem.kind === "matrix-transpose"
+        ? "A^T = [ waiting for a run ]"
+        : "C = [ waiting for a run ]";
     }
 
     function renderVectorResults(inputA, inputB, output) {
@@ -2252,6 +2355,44 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       const actualRows = buildMatrixRows(output, rowsM, colsK);
       const expectedRows = buildMatrixRows(expected, rowsM, colsK);
       for (let row = 0; row < rowsM; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderTransposeResults(inputA, rows, cols, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildMatrixTransposeExpected(inputA, rows, cols);
+      const allMatch = arraysAlmostEqual(output, expected, 1e-3);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${cols} x ${rows}`;
+
+      const reference = document.createElement("span");
+      reference.className = "pill";
+      reference.textContent = "Reference: CPU row-major transpose";
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(reference);
+
+      vector.textContent = `A^T = ${formatMatrixMultiline(output, cols, rows)}`;
+
+      const actualRows = buildMatrixRows(output, cols, rows);
+      const expectedRows = buildMatrixRows(expected, cols, rows);
+      for (let row = 0; row < cols; row += 1) {
         const item = document.createElement("li");
         item.className = "result-item";
         item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
@@ -2369,6 +2510,7 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       }
 
       try {
+        pushLog("Compiling the CUDA submission to PTX in-browser...", "runtime");
         const compiler = await ensureCompilerReady();
         ensureModuleWorkspace(compiler);
 
@@ -2527,6 +2669,58 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
       }
     }
 
+    function runMatrixTranspose() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rows = parsePositiveInt(document.getElementById("matrix-m").value);
+      const cols = parsePositiveInt(document.getElementById("matrix-n").value);
+
+      if (rows === null || cols === null) {
+        pushLog("Input rows and cols must both be positive integers.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length !== rows * cols) {
+        pushLog("Input Matrix A length does not match rows x cols.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABytes = inputA.length * Float32Array.BYTES_PER_ELEMENT;
+      const inputAPtr = window.Module._malloc(inputABytes);
+
+      try {
+        window.Module.HEAPF32.set(inputA, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_matrix_transpose",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, rows, cols]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderTransposeResults(inputA, rows, cols, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
     function runSelectedProblem() {
       const problem = getCurrentProblem();
       if (!problem) {
@@ -2540,6 +2734,11 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int M
 
       if (problem.kind === "matrix-multiplication") {
         runMatrixMultiplication();
+        return;
+      }
+
+      if (problem.kind === "matrix-transpose") {
+        runMatrixTranspose();
         return;
       }
 

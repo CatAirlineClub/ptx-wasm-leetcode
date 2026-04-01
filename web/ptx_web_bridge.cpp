@@ -705,6 +705,176 @@ public:
         return true;
     }
 
+    bool runConvolution2DDemo(const std::string& kernelName,
+                              const float* input,
+                              int inputLen,
+                              const float* kernelInput,
+                              int kernelLen,
+                              int inputRows,
+                              int inputCols,
+                              int kernelRows,
+                              int kernelCols) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (input == nullptr || kernelInput == nullptr) {
+            lastError_ = "Input and kernel buffers must not be null.";
+            return false;
+        }
+
+        if (inputRows <= 0 || inputCols <= 0 || kernelRows <= 0 || kernelCols <= 0) {
+            lastError_ = "Input and kernel dimensions must all be positive integers.";
+            return false;
+        }
+
+        if (kernelRows > inputRows || kernelCols > inputCols) {
+            lastError_ = "Kernel dimensions must not exceed the input dimensions.";
+            return false;
+        }
+
+        const size_t expectedInputLen =
+            static_cast<size_t>(inputRows) * static_cast<size_t>(inputCols);
+        const size_t expectedKernelLen =
+            static_cast<size_t>(kernelRows) * static_cast<size_t>(kernelCols);
+        const int outputRows = inputRows - kernelRows + 1;
+        const int outputCols = inputCols - kernelCols + 1;
+        const size_t outputLen =
+            static_cast<size_t>(outputRows) * static_cast<size_t>(outputCols);
+
+        if (static_cast<size_t>(inputLen) != expectedInputLen) {
+            lastError_ = "Input matrix length does not match input_rows x input_cols.";
+            return false;
+        }
+
+        if (static_cast<size_t>(kernelLen) != expectedKernelLen) {
+            lastError_ = "Kernel length does not match kernel_rows x kernel_cols.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isConvolution2DSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u32, .u32, .u32, .u32), such as 2D convolution.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = expectedInputLen * sizeof(float);
+        const size_t kernelBytes = expectedKernelLen * sizeof(float);
+        const size_t outputBytes = outputLen * sizeof(float);
+        const std::vector<float> zeroOutput(outputLen, 0.0f);
+        const CUdeviceptr inputPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr kernelPtr = vm->allocateMemory(kernelBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputPtr, input, inputBytes)) {
+            lastError_ = "Failed to copy the input matrix into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(kernelPtr, kernelInput, kernelBytes)) {
+            lastError_ = "Failed to copy the kernel matrix into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output matrix in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({kernelPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({outputPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({
+            static_cast<CUdeviceptr>(inputRows),
+            kernel->parameters[3].size,
+            kernel->parameters[3].offset,
+        });
+        params.push_back({
+            static_cast<CUdeviceptr>(inputCols),
+            kernel->parameters[4].size,
+            kernel->parameters[4].offset,
+        });
+        params.push_back({
+            static_cast<CUdeviceptr>(kernelRows),
+            kernel->parameters[5].size,
+            kernel->parameters[5].offset,
+        });
+        params.push_back({
+            static_cast<CUdeviceptr>(kernelCols),
+            kernel->parameters[6].size,
+            kernel->parameters[6].offset,
+        });
+
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.resize(outputLen, 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the 2D convolution output failed.";
+            lastResult_.clear();
+            return false;
+        }
+
+        return true;
+    }
+
     bool runMatrixTransposeDemo(const std::string& kernelName,
                                 const float* inputA,
                                 int inputALen,
@@ -1496,6 +1666,24 @@ private:
                isScalar32BitInteger(kernel.parameters[4]);
     }
 
+    bool isConvolution2DSignature(const PTXFunction& kernel) const {
+        if (kernel.parameters.size() != 7) {
+            return false;
+        }
+
+        return kernel.parameters[0].isPointer &&
+               kernel.parameters[1].isPointer &&
+               kernel.parameters[2].isPointer &&
+               !kernel.parameters[3].isPointer &&
+               !kernel.parameters[4].isPointer &&
+               !kernel.parameters[5].isPointer &&
+               !kernel.parameters[6].isPointer &&
+               isScalar32BitInteger(kernel.parameters[3]) &&
+               isScalar32BitInteger(kernel.parameters[4]) &&
+               isScalar32BitInteger(kernel.parameters[5]) &&
+               isScalar32BitInteger(kernel.parameters[6]);
+    }
+
     bool isMatrixTransposeSignature(const PTXFunction& kernel) const {
         if (kernel.parameters.size() != 4) {
             return false;
@@ -1649,6 +1837,28 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_convolution_1d(const char* kernelName,
         inputLen,
         kernelInput,
         kernelLen) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_convolution_2d(const char* kernelName,
+                                                  const float* input,
+                                                  int inputLen,
+                                                  const float* kernelInput,
+                                                  int kernelLen,
+                                                  int inputRows,
+                                                  int inputCols,
+                                                  int kernelRows,
+                                                  int kernelCols) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runConvolution2DDemo(
+        chosenKernel,
+        input,
+        inputLen,
+        kernelInput,
+        kernelLen,
+        inputRows,
+        inputCols,
+        kernelRows,
+        kernelCols) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int ptxvm_run_matrix_multiplication(const char* kernelName,

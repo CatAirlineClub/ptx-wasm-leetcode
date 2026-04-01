@@ -592,7 +592,7 @@
 
     .dimension-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 12px;
     }
 
@@ -881,7 +881,7 @@
           <div class="eyebrow">Problem Set</div>
           <h2>LeetGPU Browser Catalog</h2>
           <p class="muted">
-            左边是 1 到 74 题的题库目录。当前浏览器 judge 已支持第 1 题到第 9 题完整运行，我正在继续把后面的题一题一题补成可编译、可运行、可判题的版本。
+            左边是 1 到 74 题的题库目录。当前浏览器 judge 已支持第 1 题到第 10 题完整运行，我正在继续把后面的题一题一题补成可编译、可运行、可判题的版本。
           </p>
           <ul id="problem-list" class="problem-list"></ul>
         </div>
@@ -1041,6 +1041,11 @@
                 <div id="matrix-k-field" class="field">
                   <label id="matrix-k-label" for="matrix-k">Cols K</label>
                   <input id="matrix-k" type="number" min="1" step="1" />
+                </div>
+
+                <div id="matrix-l-field" class="field" hidden>
+                  <label id="matrix-l-label" for="matrix-l">Extra Dim</label>
+                  <input id="matrix-l" type="number" min="1" step="1" />
                 </div>
               </div>
 
@@ -1568,6 +1573,73 @@ extern "C" __global__ void solve(const float* input,
             inputA: [2.0, 4.0, 6.0, 8.0],
             inputB: [0.5, 0.2],
             expected: [1.8, 3.2, 4.6]
+          }
+        ]
+      },
+      10: {
+        kind: "convolution-2d",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract:
+          "The browser judge expects a PTX entry kernel with input, kernel, and output pointers plus 32-bit input_rows, input_cols, kernel_rows, and kernel_cols scalars. For browser compatibility, compute the full valid 2D convolution output directly inside solve.",
+        submissionHint:
+          "The Starter Code tab shows the official LeetGPU CUDA starter. For the browser compiler, submit a single extern \"C\" __global__ solve kernel that computes the entire valid 2D convolution output directly in solve.",
+        testcaseHint:
+          "Paste row-major float arrays for the input matrix and kernel, then provide input_rows, input_cols, kernel_rows, and kernel_cols.",
+        testcaseHelp:
+          "Input length must equal input_rows x input_cols, kernel length must equal kernel_rows x kernel_cols, and the kernel dimensions must not exceed the input dimensions. The browser judge compares the full output matrix against a CPU valid 2D convolution reference.",
+        resultTitle: "2D Convolution Output",
+        resultSubtitle:
+          "The final result must be stored in the output matrix. The judge compares it to a CPU valid 2D convolution reference.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, const float* kernel, float* output, int input_rows, int input_cols, int kernel_rows, int kernel_cols) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input,
+                                 const float* kernel,
+                                 float* output,
+                                 int input_rows,
+                                 int input_cols,
+                                 int kernel_rows,
+                                 int kernel_cols) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int output_rows = input_rows - kernel_rows + 1;
+        int output_cols = input_cols - kernel_cols + 1;
+
+        for (int row = 0; row < output_rows; row = row + 1) {
+            for (int col = 0; col < output_cols; col = col + 1) {
+                float sum = 0.0f;
+                for (int kr = 0; kr < kernel_rows; kr = kr + 1) {
+                    for (int kc = 0; kc < kernel_cols; kc = kc + 1) {
+                        // TODO: accumulate input[(row + kr) * input_cols + (col + kc)]
+                        // multiplied by kernel[kr * kernel_cols + kc].
+                    }
+                }
+                output[row * output_cols + col] = sum;
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputRows: 3,
+            inputCols: 3,
+            kernelRows: 2,
+            kernelCols: 2,
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            inputB: [0.0, 1.0, 1.0, 0.0],
+            expected: [6.0, 8.0, 12.0, 14.0]
+          },
+          {
+            label: "Example 2",
+            inputRows: 4,
+            inputCols: 4,
+            kernelRows: 1,
+            kernelCols: 3,
+            inputA: [1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 3.0, 1.0, 1.0, 4.0, 5.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            inputB: [1.0, 0.0, 1.0],
+            expected: [2.0, 2.0, 4.0, 3.0, 6.0, 5.0, 2.0, 2.0]
           }
         ]
       }
@@ -2130,6 +2202,28 @@ extern "C" __global__ void solve(const float* input,
       return output;
     }
 
+    function buildConvolution2DExpected(input, kernel, inputRows, inputCols, kernelRows, kernelCols) {
+      const outputRows = inputRows - kernelRows + 1;
+      const outputCols = inputCols - kernelCols + 1;
+      const output = new Array(outputRows * outputCols).fill(0.0);
+
+      for (let row = 0; row < outputRows; row += 1) {
+        for (let col = 0; col < outputCols; col += 1) {
+          let sum = 0.0;
+          for (let kr = 0; kr < kernelRows; kr += 1) {
+            for (let kc = 0; kc < kernelCols; kc += 1) {
+              const inputIndex = (row + kr) * inputCols + (col + kc);
+              const kernelIndex = kr * kernelCols + kc;
+              sum += input[inputIndex] * kernel[kernelIndex];
+            }
+          }
+          output[row * outputCols + col] = sum;
+        }
+      }
+
+      return output;
+    }
+
     function buildMatrixTransposeExpected(inputA, rows, cols) {
       const result = new Array(rows * cols).fill(0);
 
@@ -2272,6 +2366,7 @@ extern "C" __global__ void solve(const float* input,
       document.getElementById("matrix-m").value = "";
       document.getElementById("matrix-n").value = "";
       document.getElementById("matrix-k").value = "";
+      document.getElementById("matrix-l").value = "";
     }
 
     function clearLoadedProgramState() {
@@ -2334,22 +2429,32 @@ extern "C" __global__ void solve(const float* input,
         document.getElementById("matrix-m").value = String(example.rowsM);
         document.getElementById("matrix-n").value = String(example.sharedN);
         document.getElementById("matrix-k").value = String(example.colsK);
+        document.getElementById("matrix-l").value = "";
+      } else if (problem.kind === "convolution-2d") {
+        document.getElementById("matrix-m").value = String(example.inputRows);
+        document.getElementById("matrix-n").value = String(example.inputCols);
+        document.getElementById("matrix-k").value = String(example.kernelRows);
+        document.getElementById("matrix-l").value = String(example.kernelCols);
       } else if (problem.kind === "matrix-addition") {
         document.getElementById("matrix-m").value = String(example.matrixSize);
         document.getElementById("matrix-n").value = "";
         document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
       } else if (problem.kind === "color-inversion") {
         document.getElementById("matrix-m").value = String(example.width);
         document.getElementById("matrix-n").value = String(example.height);
         document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
       } else if (problem.kind === "matrix-transpose") {
         document.getElementById("matrix-m").value = String(example.rows);
         document.getElementById("matrix-n").value = String(example.cols);
         document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
       } else {
         document.getElementById("matrix-m").value = "";
         document.getElementById("matrix-n").value = "";
         document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
       }
 
       if (pushMessage) {
@@ -2491,6 +2596,14 @@ extern "C" __global__ void solve(const float* input,
             <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
             <span class="vector-line">Output: C = ${formatVector(example.expected)}</span>
           `;
+        } else if (problem.kind === "convolution-2d") {
+          const outputRows = example.inputRows - example.kernelRows + 1;
+          const outputCols = example.inputCols - example.kernelCols + 1;
+          bodyHtml = `
+            <span class="vector-line">Input:  input (${example.inputRows} x ${example.inputCols}) = ${formatMatrixInline(example.inputA, example.inputRows, example.inputCols)}</span>
+            <span class="vector-line">        kernel (${example.kernelRows} x ${example.kernelCols}) = ${formatMatrixInline(example.inputB, example.kernelRows, example.kernelCols)}</span>
+            <span class="vector-line">Output: output (${outputRows} x ${outputCols}) = ${formatMatrixInline(example.expected, outputRows, outputCols)}</span>
+          `;
         } else if (problem.kind === "convolution-1d") {
           bodyHtml = `
             <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
@@ -2592,17 +2705,19 @@ extern "C" __global__ void solve(const float* input,
 
       const usesSecondInput =
         problem.kind === "vector-add" ||
+        problem.kind === "convolution-2d" ||
         problem.kind === "convolution-1d" ||
         problem.kind === "matrix-addition" ||
         problem.kind === "matrix-multiplication" ||
         problem.kind === "softmax-attention";
       const usesThirdInput = problem.kind === "softmax-attention";
       const isColorInversion = problem.kind === "color-inversion";
+      const isConvolution2D = problem.kind === "convolution-2d";
       const isMatrixAddition = problem.kind === "matrix-addition";
       const isMatrixMultiply = problem.kind === "matrix-multiplication";
       const isTranspose = problem.kind === "matrix-transpose";
       const isAttention = problem.kind === "softmax-attention";
-      const usesMatrixDims = isMatrixAddition || isMatrixMultiply || isTranspose || isAttention || isColorInversion;
+      const usesMatrixDims = isConvolution2D || isMatrixAddition || isMatrixMultiply || isTranspose || isAttention || isColorInversion;
       const canRun = problem.supportsRun;
       const canCompile = problem.supportsCudaCompile;
       const matrixDims = document.getElementById("matrix-dims");
@@ -2615,12 +2730,15 @@ extern "C" __global__ void solve(const float* input,
       const matrixM = document.getElementById("matrix-m");
       const matrixN = document.getElementById("matrix-n");
       const matrixK = document.getElementById("matrix-k");
+      const matrixL = document.getElementById("matrix-l");
       const matrixMField = document.getElementById("matrix-m-field");
       const matrixNField = document.getElementById("matrix-n-field");
       const matrixKField = document.getElementById("matrix-k-field");
+      const matrixLField = document.getElementById("matrix-l-field");
       const matrixMLabel = document.getElementById("matrix-m-label");
       const matrixNLabel = document.getElementById("matrix-n-label");
       const matrixKLabel = document.getElementById("matrix-k-label");
+      const matrixLLabel = document.getElementById("matrix-l-label");
       const resetButton = document.getElementById("reset-button");
       const runButton = document.getElementById("run-button");
       const fileInput = document.getElementById("cuda-file");
@@ -2630,6 +2748,8 @@ extern "C" __global__ void solve(const float* input,
       document.getElementById("input-a-label").textContent =
         problem.kind === "vector-add"
           ? "Vector A"
+          : problem.kind === "convolution-2d"
+            ? "Input Matrix (row-major)"
           : problem.kind === "convolution-1d"
             ? "Input Array"
           : isColorInversion
@@ -2648,6 +2768,8 @@ extern "C" __global__ void solve(const float* input,
       document.getElementById("input-b-label").textContent =
         problem.kind === "vector-add"
           ? "Vector B"
+          : problem.kind === "convolution-2d"
+            ? "Kernel (row-major)"
           : problem.kind === "convolution-1d"
             ? "Kernel"
           : isAttention
@@ -2662,13 +2784,29 @@ extern "C" __global__ void solve(const float* input,
       document.getElementById("input-c-label").textContent =
         isAttention ? "Matrix V (row-major)" : "Input C";
 
-      matrixMLabel.textContent = isColorInversion ? "Width" : isTranspose ? "Input Rows" : isMatrixAddition ? "Matrix N" : "Rows M";
-      matrixNLabel.textContent = isColorInversion ? "Height" : isTranspose ? "Input Cols" : isAttention ? "Keys N" : "Shared N";
-      matrixKLabel.textContent = isAttention ? "Feature d" : "Cols K";
+      matrixMLabel.textContent =
+        isColorInversion ? "Width"
+        : isConvolution2D ? "Input Rows"
+        : isTranspose ? "Input Rows"
+        : isMatrixAddition ? "Matrix N"
+        : "Rows M";
+      matrixNLabel.textContent =
+        isColorInversion ? "Height"
+        : isConvolution2D ? "Input Cols"
+        : isTranspose ? "Input Cols"
+        : isAttention ? "Keys N"
+        : "Shared N";
+      matrixKLabel.textContent =
+        isConvolution2D ? "Kernel Rows"
+        : isAttention ? "Feature d"
+        : "Cols K";
+      matrixLLabel.textContent = isConvolution2D ? "Kernel Cols" : "Extra Dim";
 
       inputA.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "1.0, 2.0, 3.0"
+          : problem.kind === "convolution-2d"
+            ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
           : problem.kind === "convolution-1d"
             ? "1.0, 2.0, 3.0, 4.0, 5.0"
           : isColorInversion
@@ -2688,6 +2826,8 @@ extern "C" __global__ void solve(const float* input,
       inputB.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "4.0, 5.0, 6.0"
+          : problem.kind === "convolution-2d"
+            ? "0.0, 1.0, 1.0, 0.0"
           : problem.kind === "convolution-1d"
             ? "1.0, 0.0, -1.0"
           : isAttention
@@ -2709,11 +2849,13 @@ extern "C" __global__ void solve(const float* input,
       inputCField.hidden = !usesThirdInput;
       matrixDims.hidden = !usesMatrixDims;
       matrixMField.hidden = !usesMatrixDims;
-      matrixNField.hidden = !(isMatrixMultiply || isTranspose || isAttention || isColorInversion);
-      matrixKField.hidden = !(isMatrixMultiply || isAttention);
+      matrixNField.hidden = !(isConvolution2D || isMatrixMultiply || isTranspose || isAttention || isColorInversion);
+      matrixKField.hidden = !(isConvolution2D || isMatrixMultiply || isAttention);
+      matrixLField.hidden = !isConvolution2D;
       matrixM.disabled = !canRun || !usesMatrixDims;
       matrixN.disabled = !canRun || matrixNField.hidden;
       matrixK.disabled = !canRun || matrixKField.hidden;
+      matrixL.disabled = !canRun || matrixLField.hidden;
 
       fileInput.disabled = !canCompile;
       setCudaSourceEditorDisabled(!canCompile);
@@ -2854,6 +2996,8 @@ extern "C" __global__ void solve(const float* input,
       } else if (problem.kind === "color-inversion") {
         vector.textContent = "image = [ waiting for a run ]";
       } else if (problem.kind === "softmax-attention") {
+        vector.textContent = "output = [ waiting for a run ]";
+      } else if (problem.kind === "convolution-2d") {
         vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "convolution-1d") {
         vector.textContent = "output = [ waiting for a run ]";
@@ -3010,6 +3154,46 @@ extern "C" __global__ void solve(const float* input,
         const item = document.createElement("li");
         item.className = "result-item";
         item.innerHTML = `<strong>output[${i}] = ${formatNumber(output[i])}</strong>expected=${formatNumber(expected[i])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderConvolution2DResults(input, kernel, inputRows, inputCols, kernelRows, kernelCols, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const outputRows = inputRows - kernelRows + 1;
+      const outputCols = inputCols - kernelCols + 1;
+      const expected = buildConvolution2DExpected(input, kernel, inputRows, inputCols, kernelRows, kernelCols);
+      const allMatch = arraysAlmostEqual(output, expected, 1e-4);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${outputRows} x ${outputCols}`;
+
+      const reference = document.createElement("span");
+      reference.className = "pill";
+      reference.textContent = "Reference: CPU valid 2D convolution";
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(reference);
+
+      vector.textContent = `output = ${formatMatrixMultiline(output, outputRows, outputCols)}`;
+
+      const actualRows = buildMatrixRows(output, outputRows, outputCols);
+      const expectedRows = buildMatrixRows(expected, outputRows, outputCols);
+      for (let row = 0; row < outputRows; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
         list.appendChild(item);
       }
     }
@@ -3590,6 +3774,76 @@ extern "C" __global__ void solve(const float* input,
       }
     }
 
+    function runConvolution2D() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputRows = parsePositiveInt(document.getElementById("matrix-m").value);
+      const inputCols = parsePositiveInt(document.getElementById("matrix-n").value);
+      const kernelRows = parsePositiveInt(document.getElementById("matrix-k").value);
+      const kernelCols = parsePositiveInt(document.getElementById("matrix-l").value);
+
+      if (inputRows === null || inputCols === null || kernelRows === null || kernelCols === null) {
+        pushLog("Input rows, input cols, kernel rows, and kernel cols must all be positive integers.", "stderr");
+        return;
+      }
+
+      if (kernelRows > inputRows || kernelCols > inputCols) {
+        pushLog("Kernel dimensions must not exceed the input dimensions.", "stderr");
+        return;
+      }
+
+      const input = parseFloatList(document.getElementById("input-a").value);
+      const kernel = parseFloatList(document.getElementById("input-b").value);
+
+      if (input.length !== inputRows * inputCols) {
+        pushLog("Input matrix length does not match input_rows x input_cols.", "stderr");
+        return;
+      }
+
+      if (kernel.length !== kernelRows * kernelCols) {
+        pushLog("Kernel length does not match kernel_rows x kernel_cols.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputBytes = input.length * Float32Array.BYTES_PER_ELEMENT;
+      const kernelBytes = kernel.length * Float32Array.BYTES_PER_ELEMENT;
+      const inputPtr = window.Module._malloc(inputBytes);
+      const kernelPtr = window.Module._malloc(kernelBytes);
+
+      try {
+        window.Module.HEAPF32.set(input, inputPtr >> 2);
+        window.Module.HEAPF32.set(kernel, kernelPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_convolution_2d",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputPtr, input.length, kernelPtr, kernel.length, inputRows, inputCols, kernelRows, kernelCols]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderConvolution2DResults(input, kernel, inputRows, inputCols, kernelRows, kernelCols, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputPtr);
+        window.Module._free(kernelPtr);
+      }
+    }
+
     function runMatrixTranspose() {
       if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
         return;
@@ -3869,6 +4123,11 @@ extern "C" __global__ void solve(const float* input,
 
       if (!problem.supportsRun) {
         pushLog("The selected challenge does not have a browser judge implementation yet.", "stderr");
+        return;
+      }
+
+      if (problem.kind === "convolution-2d") {
+        runConvolution2D();
         return;
       }
 

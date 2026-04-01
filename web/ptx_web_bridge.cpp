@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -990,6 +991,131 @@ public:
         return true;
     }
 
+    bool runColorInversionDemo(const std::string& kernelName,
+                               const std::uint8_t* image,
+                               int imageLen,
+                               int width,
+                               int height) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (image == nullptr) {
+            lastError_ = "Image buffer must not be null.";
+            return false;
+        }
+
+        if (width <= 0 || height <= 0) {
+            lastError_ = "Width and height must both be positive integers.";
+            return false;
+        }
+
+        const size_t expectedLen =
+            static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+        if (static_cast<size_t>(imageLen) != expectedLen) {
+            lastError_ = "Image length must equal width x height x 4 RGBA bytes.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isColorInversionSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u32, .u32), such as color inversion.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t imageBytes = expectedLen * sizeof(std::uint8_t);
+        const CUdeviceptr imagePtr = vm->allocateMemory(imageBytes);
+        if (!vm->copyMemoryHtoD(imagePtr, image, imageBytes)) {
+            lastError_ = "Failed to copy the image buffer into VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({imagePtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({
+            static_cast<CUdeviceptr>(width),
+            kernel->parameters[1].size,
+            kernel->parameters[1].offset,
+        });
+        params.push_back({
+            static_cast<CUdeviceptr>(height),
+            kernel->parameters[2].size,
+            kernel->parameters[2].offset,
+        });
+
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        std::vector<std::uint8_t> outputImage(expectedLen, 0);
+        if (!vm->copyMemoryDtoH(outputImage.data(), imagePtr, imageBytes)) {
+            lastError_ = "Kernel executed, but reading the image output failed.";
+            return false;
+        }
+
+        lastResult_.assign(expectedLen, 0.0f);
+        for (size_t i = 0; i < expectedLen; ++i) {
+            lastResult_[i] = static_cast<float>(outputImage[i]);
+        }
+
+        return true;
+    }
+
     int getResultCount() const {
         return static_cast<int>(lastResult_.size());
     }
@@ -1126,6 +1252,18 @@ private:
                isScalar32BitInteger(kernel.parameters[6]);
     }
 
+    bool isColorInversionSignature(const PTXFunction& kernel) const {
+        if (kernel.parameters.size() != 3) {
+            return false;
+        }
+
+        return kernel.parameters[0].isPointer &&
+               !kernel.parameters[1].isPointer &&
+               !kernel.parameters[2].isPointer &&
+               isScalar32BitInteger(kernel.parameters[1]) &&
+               isScalar32BitInteger(kernel.parameters[2]);
+    }
+
     bool isScalar32BitInteger(const PTXParameter& param) const {
         return param.type == ".u32" || param.type == ".s32";
     }
@@ -1257,6 +1395,20 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_softmax_attention(const char* kernelName,
         rowsM,
         sharedN,
         featureD) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_color_inversion(const char* kernelName,
+                                                   const std::uint8_t* image,
+                                                   int imageLen,
+                                                   int width,
+                                                   int height) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runColorInversionDemo(
+        chosenKernel,
+        image,
+        imageLen,
+        width,
+        height) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int ptxvm_get_result_count() {

@@ -881,7 +881,7 @@
           <div class="eyebrow">Problem Set</div>
           <h2>LeetGPU Browser Catalog</h2>
           <p class="muted">
-            左边是 1 到 74 题的题库目录。当前浏览器 judge 已支持第 1 题到第 6 题完整运行，我正在继续把后面的题一题一题补成可编译、可运行、可判题的版本。
+            左边是 1 到 74 题的题库目录。当前浏览器 judge 已支持第 1 题到第 7 题完整运行，我正在继续把后面的题一题一题补成可编译、可运行、可判题的版本。
           </p>
           <ul id="problem-list" class="problem-list"></ul>
         </div>
@@ -1421,6 +1421,60 @@ extern "C" __global__ void solve(const float* Q,
             expected: [4.339523, 5.339523]
           }
         ]
+      },
+      7: {
+        kind: "color-inversion",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract:
+          "The browser judge expects a PTX entry kernel with one image pointer plus 32-bit width and height scalars. For browser compatibility, invert the full RGBA image in-place inside a single extern \"C\" __global__ solve kernel.",
+        submissionHint:
+          "The Starter Code tab shows the official LeetGPU CUDA starter. For the browser compiler, submit a single extern \"C\" __global__ entry kernel. Using a packed 32-bit RGBA view inside solve is recommended for browser compatibility.",
+        testcaseHint:
+          "Paste a flat RGBA byte array, then provide width and height.",
+        testcaseHelp:
+          "The image input must contain width x height x 4 unsigned-byte values in RGBA order. The browser judge validates that R, G, and B are inverted while Alpha stays unchanged.",
+        resultTitle: "Inverted Image",
+        resultSubtitle:
+          "The final result must be written back into the image array. The judge compares the full RGBA buffer against a CPU color inversion reference.",
+        signatureHint: `extern "C" __global__ void solve(unsigned char* image, int width, int height) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(unsigned char* image, int width, int height) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        unsigned int* pixels = (unsigned int*)image;
+        int totalPixels = width * height;
+
+        for (int i = 0; i < totalPixels; i = i + 1) {
+            unsigned int pixel = pixels[i];
+            unsigned int r = pixel & 255u;
+            unsigned int g = (pixel >> 8) & 255u;
+            unsigned int b = (pixel >> 16) & 255u;
+            unsigned int a = pixel & 0xFF000000u;
+
+            // TODO: invert r, g, and b with respect to 255 while leaving a unchanged.
+            // Then pack the updated pixel back into pixels[i].
+            pixels[i] = pixel;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            width: 1,
+            height: 2,
+            inputA: [255, 0, 128, 255, 0, 255, 0, 255],
+            expected: [0, 255, 127, 255, 255, 0, 255, 255]
+          },
+          {
+            label: "Example 2",
+            width: 2,
+            height: 1,
+            inputA: [10, 20, 30, 255, 100, 150, 200, 255],
+            expected: [245, 235, 225, 255, 155, 105, 55, 255]
+          }
+        ]
       }
     };
 
@@ -1826,6 +1880,15 @@ extern "C" __global__ void solve(const float* Q,
       return Number.isInteger(rounded) ? rounded.toFixed(1) : String(rounded);
     }
 
+    function formatByte(value) {
+      const rounded = Math.round(Number(value) || 0);
+      return String(Math.max(0, Math.min(255, rounded)));
+    }
+
+    function formatByteVector(values) {
+      return `[${values.map((value) => formatByte(value)).join(", ")}]`;
+    }
+
     function formatVector(values) {
       return `[${values.map((value) => formatNumber(value)).join(", ")}]`;
     }
@@ -1911,6 +1974,24 @@ extern "C" __global__ void solve(const float* Q,
         .filter(Boolean)
         .map((value) => Number.parseFloat(value))
         .filter((value) => Number.isFinite(value));
+    }
+
+    function parseUint8List(text) {
+      const tokens = String(text ?? "")
+        .split(/[\s,]+/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+      const values = [];
+      for (const token of tokens) {
+        const value = Number(token);
+        if (!Number.isInteger(value) || value < 0 || value > 255) {
+          return null;
+        }
+        values.push(value);
+      }
+
+      return values;
     }
 
     function parsePositiveInt(text) {
@@ -2009,6 +2090,16 @@ extern "C" __global__ void solve(const float* Q,
         }
       }
 
+      return output;
+    }
+
+    function buildColorInversionExpected(image) {
+      const output = image.slice();
+      for (let i = 0; i + 3 < output.length; i += 4) {
+        output[i] = 255 - output[i];
+        output[i + 1] = 255 - output[i + 1];
+        output[i + 2] = 255 - output[i + 2];
+      }
       return output;
     }
 
@@ -2132,6 +2223,10 @@ extern "C" __global__ void solve(const float* Q,
         document.getElementById("matrix-m").value = String(example.rowsM);
         document.getElementById("matrix-n").value = String(example.sharedN);
         document.getElementById("matrix-k").value = String(example.colsK);
+      } else if (problem.kind === "color-inversion") {
+        document.getElementById("matrix-m").value = String(example.width);
+        document.getElementById("matrix-n").value = String(example.height);
+        document.getElementById("matrix-k").value = "";
       } else if (problem.kind === "matrix-transpose") {
         document.getElementById("matrix-m").value = String(example.rows);
         document.getElementById("matrix-n").value = String(example.cols);
@@ -2288,6 +2383,12 @@ extern "C" __global__ void solve(const float* Q,
             <span class="vector-line">        V (${example.sharedN} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.sharedN, example.colsK)}</span>
             <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
           `;
+        } else if (problem.kind === "color-inversion") {
+          bodyHtml = `
+            <span class="vector-line">Input:  image = ${formatByteVector(example.inputA)}</span>
+            <span class="vector-line">        width = ${example.width}, height = ${example.height}</span>
+            <span class="vector-line">Output: image = ${formatByteVector(example.expected)}</span>
+          `;
         } else if (problem.kind === "softmax") {
           bodyHtml = `
             <span class="vector-line">Input:  x = ${formatVector(example.inputA)}</span>
@@ -2367,10 +2468,11 @@ extern "C" __global__ void solve(const float* Q,
         problem.kind === "matrix-multiplication" ||
         problem.kind === "softmax-attention";
       const usesThirdInput = problem.kind === "softmax-attention";
+      const isColorInversion = problem.kind === "color-inversion";
       const isMatrixMultiply = problem.kind === "matrix-multiplication";
       const isTranspose = problem.kind === "matrix-transpose";
       const isAttention = problem.kind === "softmax-attention";
-      const usesMatrixDims = isMatrixMultiply || isTranspose || isAttention;
+      const usesMatrixDims = isMatrixMultiply || isTranspose || isAttention || isColorInversion;
       const canRun = problem.supportsRun;
       const canCompile = problem.supportsCudaCompile;
       const matrixDims = document.getElementById("matrix-dims");
@@ -2396,6 +2498,8 @@ extern "C" __global__ void solve(const float* Q,
       document.getElementById("input-a-label").textContent =
         problem.kind === "vector-add"
           ? "Vector A"
+          : isColorInversion
+            ? "Image RGBA (flat)"
           : (problem.kind === "reduction" || problem.kind === "softmax")
             ? "Input Array"
           : isAttention
@@ -2418,13 +2522,15 @@ extern "C" __global__ void solve(const float* Q,
       document.getElementById("input-c-label").textContent =
         isAttention ? "Matrix V (row-major)" : "Input C";
 
-      matrixMLabel.textContent = isTranspose ? "Input Rows" : "Rows M";
-      matrixNLabel.textContent = isTranspose ? "Input Cols" : isAttention ? "Keys N" : "Shared N";
+      matrixMLabel.textContent = isColorInversion ? "Width" : isTranspose ? "Input Rows" : "Rows M";
+      matrixNLabel.textContent = isColorInversion ? "Height" : isTranspose ? "Input Cols" : isAttention ? "Keys N" : "Shared N";
       matrixKLabel.textContent = isAttention ? "Feature d" : "Cols K";
 
       inputA.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "1.0, 2.0, 3.0"
+          : isColorInversion
+            ? "255, 0, 128, 255, 0, 255, 0, 255"
           : (problem.kind === "reduction" || problem.kind === "softmax")
             ? "1.0, 2.0, 3.0, 4.0"
           : isAttention
@@ -2595,6 +2701,8 @@ extern "C" __global__ void solve(const float* Q,
       summary.innerHTML = '<span class="pill">Waiting for a run</span>';
       if (problem.kind === "matrix-transpose") {
         vector.textContent = "A^T = [ waiting for a run ]";
+      } else if (problem.kind === "color-inversion") {
+        vector.textContent = "image = [ waiting for a run ]";
       } else if (problem.kind === "softmax-attention") {
         vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "softmax") {
@@ -2824,6 +2932,48 @@ extern "C" __global__ void solve(const float* Q,
         const item = document.createElement("li");
         item.className = "result-item";
         item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderColorInversionResults(imageInput, width, height, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const actual = output.map((value) => Math.max(0, Math.min(255, Math.round(value))));
+      const expected = buildColorInversionExpected(imageInput);
+      const allMatch =
+        actual.length === expected.length &&
+        actual.every((value, index) => value === expected[index]);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${width} x ${height}`;
+
+      const pixels = document.createElement("span");
+      pixels.className = "pill";
+      pixels.textContent = `Pixels: ${width * height}`;
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(pixels);
+
+      vector.textContent = `image = ${formatByteVector(actual)}`;
+
+      for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+        const start = pixelIndex * 4;
+        const row = Math.floor(pixelIndex / width);
+        const col = pixelIndex % width;
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Pixel (${row}, ${col})</strong>actual=${formatByteVector(actual.slice(start, start + 4))}, expected=${formatByteVector(expected.slice(start, start + 4))}`;
         list.appendChild(item);
       }
     }
@@ -3311,6 +3461,63 @@ extern "C" __global__ void solve(const float* Q,
       }
     }
 
+    function runColorInversion() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const width = parsePositiveInt(document.getElementById("matrix-m").value);
+      const height = parsePositiveInt(document.getElementById("matrix-n").value);
+      if (width === null || height === null) {
+        pushLog("Width and height must both be positive integers.", "stderr");
+        return;
+      }
+
+      const image = parseUint8List(document.getElementById("input-a").value);
+      if (image === null) {
+        pushLog("Image input must be a comma-separated list of integers between 0 and 255.", "stderr");
+        return;
+      }
+
+      const expectedLength = width * height * 4;
+      if (image.length !== expectedLength) {
+        pushLog("Image length must equal width x height x 4 RGBA bytes.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const imageBuffer = new Uint8Array(image);
+      const imagePtr = window.Module._malloc(imageBuffer.byteLength);
+
+      try {
+        window.Module.HEAPU8.set(imageBuffer, imagePtr);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_color_inversion",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, imagePtr, imageBuffer.length, width, height]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderColorInversionResults(image, width, height, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(imagePtr);
+      }
+    }
+
     function runSelectedProblem() {
       const problem = getCurrentProblem();
       if (!problem) {
@@ -3344,6 +3551,11 @@ extern "C" __global__ void solve(const float* Q,
 
       if (problem.kind === "softmax-attention") {
         runSoftmaxAttention();
+        return;
+      }
+
+      if (problem.kind === "color-inversion") {
+        runColorInversion();
         return;
       }
 

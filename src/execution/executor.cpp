@@ -1505,12 +1505,19 @@ public:
             m_currentInstructionIndex++;
             return true;
         }
-        
-        // Read source operands (float registers)
-        float src1 = m_registerBank->readFloatRegister(instr.sources[0].registerIndex);
-        float src2 = (instr.sources[1].type == OperandType::IMMEDIATE) 
-                     ? *reinterpret_cast<const float*>(&instr.sources[1].immediateValue)
-                     : m_registerBank->readFloatRegister(instr.sources[1].registerIndex);
+
+        auto readF32Operand = [this](const Operand& operand) -> float {
+            if (operand.type == OperandType::IMMEDIATE) {
+                uint32_t bits = static_cast<uint32_t>(operand.immediateValue);
+                float value = 0.0f;
+                std::memcpy(&value, &bits, sizeof(value));
+                return value;
+            }
+            return m_registerBank->readFloatRegister(operand.registerIndex);
+        };
+
+        float src1 = readF32Operand(instr.sources[0]);
+        float src2 = readF32Operand(instr.sources[1]);
         
         // Perform floating-point addition
         float result = src1 + src2;
@@ -1532,11 +1539,19 @@ public:
             m_currentInstructionIndex++;
             return true;
         }
-        
-        float src1 = m_registerBank->readFloatRegister(instr.sources[0].registerIndex);
-        float src2 = (instr.sources[1].type == OperandType::IMMEDIATE)
-                     ? *reinterpret_cast<const float*>(&instr.sources[1].immediateValue)
-                     : m_registerBank->readFloatRegister(instr.sources[1].registerIndex);
+
+        auto readF32Operand = [this](const Operand& operand) -> float {
+            if (operand.type == OperandType::IMMEDIATE) {
+                uint32_t bits = static_cast<uint32_t>(operand.immediateValue);
+                float value = 0.0f;
+                std::memcpy(&value, &bits, sizeof(value));
+                return value;
+            }
+            return m_registerBank->readFloatRegister(operand.registerIndex);
+        };
+
+        float src1 = readF32Operand(instr.sources[0]);
+        float src2 = readF32Operand(instr.sources[1]);
         
         float result = src1 - src2;
         m_registerBank->writeFloatRegister(instr.dest.registerIndex, result);
@@ -1553,11 +1568,19 @@ public:
             m_currentInstructionIndex++;
             return true;
         }
-        
-        float src1 = m_registerBank->readFloatRegister(instr.sources[0].registerIndex);
-        float src2 = (instr.sources[1].type == OperandType::IMMEDIATE)
-                     ? *reinterpret_cast<const float*>(&instr.sources[1].immediateValue)
-                     : m_registerBank->readFloatRegister(instr.sources[1].registerIndex);
+
+        auto readF32Operand = [this](const Operand& operand) -> float {
+            if (operand.type == OperandType::IMMEDIATE) {
+                uint32_t bits = static_cast<uint32_t>(operand.immediateValue);
+                float value = 0.0f;
+                std::memcpy(&value, &bits, sizeof(value));
+                return value;
+            }
+            return m_registerBank->readFloatRegister(operand.registerIndex);
+        };
+
+        float src1 = readF32Operand(instr.sources[0]);
+        float src2 = readF32Operand(instr.sources[1]);
         
         float result = src1 * src2;
         m_registerBank->writeFloatRegister(instr.dest.registerIndex, result);
@@ -1574,11 +1597,19 @@ public:
             m_currentInstructionIndex++;
             return true;
         }
-        
-        float src1 = m_registerBank->readFloatRegister(instr.sources[0].registerIndex);
-        float src2 = (instr.sources[1].type == OperandType::IMMEDIATE)
-                     ? *reinterpret_cast<const float*>(&instr.sources[1].immediateValue)
-                     : m_registerBank->readFloatRegister(instr.sources[1].registerIndex);
+
+        auto readF32Operand = [this](const Operand& operand) -> float {
+            if (operand.type == OperandType::IMMEDIATE) {
+                uint32_t bits = static_cast<uint32_t>(operand.immediateValue);
+                float value = 0.0f;
+                std::memcpy(&value, &bits, sizeof(value));
+                return value;
+            }
+            return m_registerBank->readFloatRegister(operand.registerIndex);
+        };
+
+        float src1 = readF32Operand(instr.sources[0]);
+        float src2 = readF32Operand(instr.sources[1]);
         
         if (src2 == 0.0f) {
             std::cerr << "Division by zero in DIV.F32" << std::endl;
@@ -1601,11 +1632,21 @@ public:
             m_currentInstructionIndex++;
             return true;
         }
-        
+
+        auto readF32Operand = [this](const Operand& operand) -> float {
+            if (operand.type == OperandType::IMMEDIATE) {
+                uint32_t bits = static_cast<uint32_t>(operand.immediateValue);
+                float value = 0.0f;
+                std::memcpy(&value, &bits, sizeof(value));
+                return value;
+            }
+            return m_registerBank->readFloatRegister(operand.registerIndex);
+        };
+
         // fma.f32 %f0, %f1, %f2, %f3;  // %f0 = %f1 * %f2 + %f3
-        float src1 = m_registerBank->readFloatRegister(instr.sources[0].registerIndex);
-        float src2 = m_registerBank->readFloatRegister(instr.sources[1].registerIndex);
-        float src3 = m_registerBank->readFloatRegister(instr.sources[2].registerIndex);
+        float src1 = readF32Operand(instr.sources[0]);
+        float src2 = readF32Operand(instr.sources[1]);
+        float src3 = readF32Operand(instr.sources[2]);
         
         // Use FMA if available, otherwise simulate
         float result = src1 * src2 + src3;
@@ -1625,7 +1666,17 @@ public:
             return true;
         }
 
-        float src = m_registerBank->readFloatRegister(instr.sources[0].registerIndex);
+        auto readF32Operand = [this](const Operand& operand) -> float {
+            if (operand.type == OperandType::IMMEDIATE) {
+                uint32_t bits = static_cast<uint32_t>(operand.immediateValue);
+                float value = 0.0f;
+                std::memcpy(&value, &bits, sizeof(value));
+                return value;
+            }
+            return m_registerBank->readFloatRegister(operand.registerIndex);
+        };
+
+        float src = readF32Operand(instr.sources[0]);
         float result = std::exp2(src);
         m_registerBank->writeFloatRegister(instr.dest.registerIndex, result);
         m_performanceCounters->increment(PerformanceCounterIDs::INSTRUCTIONS_EXECUTED);
@@ -1641,8 +1692,18 @@ public:
             m_currentInstructionIndex++;
             return true;
         }
-        
-        float src = m_registerBank->readFloatRegister(instr.sources[0].registerIndex);
+
+        auto readF32Operand = [this](const Operand& operand) -> float {
+            if (operand.type == OperandType::IMMEDIATE) {
+                uint32_t bits = static_cast<uint32_t>(operand.immediateValue);
+                float value = 0.0f;
+                std::memcpy(&value, &bits, sizeof(value));
+                return value;
+            }
+            return m_registerBank->readFloatRegister(operand.registerIndex);
+        };
+
+        float src = readF32Operand(instr.sources[0]);
         float result = std::sqrt(src);
         m_registerBank->writeFloatRegister(instr.dest.registerIndex, result);
         m_performanceCounters->increment(PerformanceCounterIDs::INSTRUCTIONS_EXECUTED);
@@ -1752,9 +1813,12 @@ public:
                 default: break;
             }
         } else if (instr.dataType == DataType::F32) {
-            // For float comparisons, interpret the int64_t as float bits
-            float src1 = *reinterpret_cast<float*>(&src1_val);
-            float src2 = *reinterpret_cast<float*>(&src2_val);
+            uint32_t src1Bits = static_cast<uint32_t>(getSourceBits(instr.sources[0], DataType::F32));
+            uint32_t src2Bits = static_cast<uint32_t>(getSourceBits(instr.sources[1], DataType::F32));
+            float src1 = 0.0f;
+            float src2 = 0.0f;
+            std::memcpy(&src1, &src1Bits, sizeof(src1));
+            std::memcpy(&src2, &src2Bits, sizeof(src2));
             
             switch (instr.compareOp) {
                 case CompareOp::LT: result = (src1 < src2); break;
@@ -1766,9 +1830,12 @@ public:
                 default: break;
             }
         } else if (instr.dataType == DataType::F64) {
-            // For double comparisons, interpret the int64_t as double bits
-            double src1 = *reinterpret_cast<double*>(&src1_val);
-            double src2 = *reinterpret_cast<double*>(&src2_val);
+            uint64_t src1Bits = getSourceBits(instr.sources[0], DataType::F64);
+            uint64_t src2Bits = getSourceBits(instr.sources[1], DataType::F64);
+            double src1 = 0.0;
+            double src2 = 0.0;
+            std::memcpy(&src1, &src1Bits, sizeof(src1));
+            std::memcpy(&src2, &src2Bits, sizeof(src2));
             
             switch (instr.compareOp) {
                 case CompareOp::LT: result = (src1 < src2); break;

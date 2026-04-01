@@ -817,6 +817,179 @@ public:
         return true;
     }
 
+    bool runSoftmaxAttentionDemo(const std::string& kernelName,
+                                 const float* inputQ,
+                                 int inputQLen,
+                                 const float* inputK,
+                                 int inputKLen,
+                                 const float* inputV,
+                                 int inputVLen,
+                                 int rowsM,
+                                 int sharedN,
+                                 int featureD) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputQ == nullptr || inputK == nullptr || inputV == nullptr) {
+            lastError_ = "Q, K, and V buffers must not be null.";
+            return false;
+        }
+
+        if (rowsM <= 0 || sharedN <= 0 || featureD <= 0) {
+            lastError_ = "M, N, and d must all be positive integers.";
+            return false;
+        }
+
+        const size_t expectedQLen =
+            static_cast<size_t>(rowsM) * static_cast<size_t>(featureD);
+        const size_t expectedKLen =
+            static_cast<size_t>(sharedN) * static_cast<size_t>(featureD);
+        const size_t expectedVLen = expectedKLen;
+        const size_t outputElementCount = expectedQLen;
+
+        if (static_cast<size_t>(inputQLen) != expectedQLen) {
+            lastError_ = "Matrix Q does not match the provided M x d dimensions.";
+            return false;
+        }
+
+        if (static_cast<size_t>(inputKLen) != expectedKLen) {
+            lastError_ = "Matrix K does not match the provided N x d dimensions.";
+            return false;
+        }
+
+        if (static_cast<size_t>(inputVLen) != expectedVLen) {
+            lastError_ = "Matrix V does not match the provided N x d dimensions.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isSoftmaxAttentionSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u64, .u32, .u32, .u32), such as softmax attention.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputQBytes = expectedQLen * sizeof(float);
+        const size_t inputKBytes = expectedKLen * sizeof(float);
+        const size_t inputVBytes = expectedVLen * sizeof(float);
+        const size_t outputBytes = outputElementCount * sizeof(float);
+        const std::vector<float> zeroOutput(outputElementCount, 0.0f);
+
+        const CUdeviceptr inputQPtr = vm->allocateMemory(inputQBytes);
+        const CUdeviceptr inputKPtr = vm->allocateMemory(inputKBytes);
+        const CUdeviceptr inputVPtr = vm->allocateMemory(inputVBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputQPtr, inputQ, inputQBytes)) {
+            lastError_ = "Failed to copy Matrix Q into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputKPtr, inputK, inputKBytes)) {
+            lastError_ = "Failed to copy Matrix K into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputVPtr, inputV, inputVBytes)) {
+            lastError_ = "Failed to copy Matrix V into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output matrix in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputQPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({inputKPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({inputVPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({outputPtr, kernel->parameters[3].size, kernel->parameters[3].offset});
+        params.push_back({
+            static_cast<CUdeviceptr>(rowsM),
+            kernel->parameters[4].size,
+            kernel->parameters[4].offset,
+        });
+        params.push_back({
+            static_cast<CUdeviceptr>(sharedN),
+            kernel->parameters[5].size,
+            kernel->parameters[5].offset,
+        });
+        params.push_back({
+            static_cast<CUdeviceptr>(featureD),
+            kernel->parameters[6].size,
+            kernel->parameters[6].offset,
+        });
+
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(outputElementCount, 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the attention output failed.";
+            lastResult_.clear();
+            return false;
+        }
+
+        return true;
+    }
+
     int getResultCount() const {
         return static_cast<int>(lastResult_.size());
     }
@@ -936,6 +1109,23 @@ private:
                isScalar32BitInteger(kernel.parameters[2]);
     }
 
+    bool isSoftmaxAttentionSignature(const PTXFunction& kernel) const {
+        if (kernel.parameters.size() != 7) {
+            return false;
+        }
+
+        return kernel.parameters[0].isPointer &&
+               kernel.parameters[1].isPointer &&
+               kernel.parameters[2].isPointer &&
+               kernel.parameters[3].isPointer &&
+               !kernel.parameters[4].isPointer &&
+               !kernel.parameters[5].isPointer &&
+               !kernel.parameters[6].isPointer &&
+               isScalar32BitInteger(kernel.parameters[4]) &&
+               isScalar32BitInteger(kernel.parameters[5]) &&
+               isScalar32BitInteger(kernel.parameters[6]);
+    }
+
     bool isScalar32BitInteger(const PTXParameter& param) const {
         return param.type == ".u32" || param.type == ".s32";
     }
@@ -1043,6 +1233,30 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_softmax(const char* kernelName,
                                            int inputLen) {
     const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
     return bridge().runSoftmaxDemo(chosenKernel, input, inputLen) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_softmax_attention(const char* kernelName,
+                                                     const float* inputQ,
+                                                     int inputQLen,
+                                                     const float* inputK,
+                                                     int inputKLen,
+                                                     const float* inputV,
+                                                     int inputVLen,
+                                                     int rowsM,
+                                                     int sharedN,
+                                                     int featureD) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runSoftmaxAttentionDemo(
+        chosenKernel,
+        inputQ,
+        inputQLen,
+        inputK,
+        inputKLen,
+        inputV,
+        inputVLen,
+        rowsM,
+        sharedN,
+        featureD) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int ptxvm_get_result_count() {

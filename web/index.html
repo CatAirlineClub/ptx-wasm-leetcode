@@ -881,7 +881,7 @@
           <div class="eyebrow">Problem Set</div>
           <h2>LeetGPU Browser Catalog</h2>
           <p class="muted">
-            左边是 1 到 74 题的题库目录。当前浏览器 judge 已支持第 1 题到第 4 题完整运行，其他题先提供题面与 CUDA starter 预览，能否编译和运行会在界面里明确标注。
+            左边是 1 到 74 题的题库目录。当前浏览器 judge 已支持第 1 题到第 6 题完整运行，我正在继续把后面的题一题一题补成可编译、可运行、可判题的版本。
           </p>
           <ul id="problem-list" class="problem-list"></ul>
         </div>
@@ -1022,6 +1022,11 @@
                 <textarea id="input-b"></textarea>
               </div>
 
+              <div id="input-c-field" class="field" hidden>
+                <label id="input-c-label" for="input-c">Input C</label>
+                <textarea id="input-c"></textarea>
+              </div>
+
               <div id="matrix-dims" class="dimension-grid" hidden>
                 <div class="field">
                   <label id="matrix-m-label" for="matrix-m">Rows M</label>
@@ -1034,7 +1039,7 @@
                 </div>
 
                 <div id="matrix-k-field" class="field">
-                  <label for="matrix-k">Cols K</label>
+                  <label id="matrix-k-label" for="matrix-k">Cols K</label>
                   <input id="matrix-k" type="number" min="1" step="1" />
                 </div>
               </div>
@@ -1322,6 +1327,98 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             label: "Example 2",
             inputA: [1000.0, 1001.0, 1002.0],
             expected: [0.090031, 0.244728, 0.665241]
+          }
+        ]
+      },
+      6: {
+        kind: "softmax-attention",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract:
+          "The browser judge expects a PTX entry kernel with Q, K, V, and output pointers plus 32-bit M, N, and d scalars. For browser compatibility, compute the entire output matrix directly inside a single extern \"C\" __global__ solve kernel.",
+        submissionHint:
+          "The Starter Code tab shows the official LeetGPU CUDA starter. For the browser compiler, submit a single extern \"C\" __global__ entry kernel and compute the full attention output inside solve without launching child kernels.",
+        testcaseHint:
+          "Paste row-major float arrays for Q, K, and V, then provide M, N, and d.",
+        testcaseHelp:
+          "Q must contain M x d floats. K and V must each contain N x d floats. The browser judge compares the output matrix against a CPU scaled dot-product softmax attention reference.",
+        resultTitle: "Attention Output",
+        resultSubtitle:
+          "The final result must be stored in the output matrix. The judge compares it to a CPU scaled dot-product attention reference.",
+        signatureHint: `extern "C" __global__ void solve(const float* Q, const float* K, const float* V, float* output, int M, int N, int d) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* Q,
+                                 const float* K,
+                                 const float* V,
+                                 float* output,
+                                 int M,
+                                 int N,
+                                 int d) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        float scale = 1.0f / sqrtf((float)d);
+
+        for (int row = 0; row < M; row = row + 1) {
+            float maxScore = -3.402823466e+38f;
+            for (int key = 0; key < N; key = key + 1) {
+                float score = 0.0f;
+                for (int i = 0; i < d; i = i + 1) {
+                    // TODO: accumulate the dot product between Q[row] and K[key].
+                }
+                score = score * scale;
+                if (score > maxScore) {
+                    maxScore = score;
+                }
+            }
+
+            float denom = 0.0f;
+            for (int key = 0; key < N; key = key + 1) {
+                float score = 0.0f;
+                for (int i = 0; i < d; i = i + 1) {
+                    // TODO: recompute the score for this key.
+                }
+                score = score * scale;
+                denom += expf(score - maxScore);
+            }
+
+            for (int col = 0; col < d; col = col + 1) {
+                float acc = 0.0f;
+                for (int key = 0; key < N; key = key + 1) {
+                    float score = 0.0f;
+                    for (int i = 0; i < d; i = i + 1) {
+                        // TODO: recompute the score for this key.
+                    }
+                    score = score * scale;
+                    float weight = expf(score - maxScore) / denom;
+                    acc += weight * V[key * d + col];
+                }
+                output[row * d + col] = acc;
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 2,
+            sharedN: 3,
+            colsK: 4,
+            inputA: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            inputB: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            inputC: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            expected: [4.288823, 5.288823, 6.288823, 7.288823, 5.0, 6.0, 7.0, 8.0]
+          },
+          {
+            label: "Example 2",
+            rowsM: 1,
+            sharedN: 2,
+            colsK: 2,
+            inputA: [1.0, 2.0],
+            inputB: [1.0, 0.0, 0.0, 1.0],
+            inputC: [3.0, 4.0, 5.0, 6.0],
+            expected: [4.339523, 5.339523]
           }
         ]
       }
@@ -1880,6 +1977,41 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       return exponents.map((value) => value / sum);
     }
 
+    function buildSoftmaxAttentionExpected(inputQ, inputK, inputV, rowsM, sharedN, featureD) {
+      const output = new Array(rowsM * featureD).fill(0);
+      const scale = 1 / Math.sqrt(featureD);
+
+      for (let row = 0; row < rowsM; row += 1) {
+        const scores = new Array(sharedN).fill(0);
+        let maxScore = -Infinity;
+
+        for (let key = 0; key < sharedN; key += 1) {
+          let dot = 0;
+          for (let i = 0; i < featureD; i += 1) {
+            dot += inputQ[row * featureD + i] * inputK[key * featureD + i];
+          }
+          const score = dot * scale;
+          scores[key] = score;
+          if (score > maxScore) {
+            maxScore = score;
+          }
+        }
+
+        const weights = scores.map((score) => Math.exp(score - maxScore));
+        const denom = weights.reduce((acc, value) => acc + value, 0.0);
+
+        for (let col = 0; col < featureD; col += 1) {
+          let acc = 0.0;
+          for (let key = 0; key < sharedN; key += 1) {
+            acc += (weights[key] / denom) * inputV[key * featureD + col];
+          }
+          output[row * featureD + col] = acc;
+        }
+      }
+
+      return output;
+    }
+
     function arraysAlmostEqual(actual, expected, tolerance = 1e-4) {
       return actual.length === expected.length &&
         actual.every((value, index) => Math.abs(value - expected[index]) <= tolerance);
@@ -1934,6 +2066,7 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
     function clearTestcaseEditor() {
       document.getElementById("input-a").value = "";
       document.getElementById("input-b").value = "";
+      document.getElementById("input-c").value = "";
       document.getElementById("matrix-m").value = "";
       document.getElementById("matrix-n").value = "";
       document.getElementById("matrix-k").value = "";
@@ -1993,8 +2126,9 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       currentExampleIndex = index;
       document.getElementById("input-a").value = example.inputA.join(", ");
       document.getElementById("input-b").value = Array.isArray(example.inputB) ? example.inputB.join(", ") : "";
+      document.getElementById("input-c").value = Array.isArray(example.inputC) ? example.inputC.join(", ") : "";
 
-      if (problem.kind === "matrix-multiplication") {
+      if (problem.kind === "matrix-multiplication" || problem.kind === "softmax-attention") {
         document.getElementById("matrix-m").value = String(example.rowsM);
         document.getElementById("matrix-n").value = String(example.sharedN);
         document.getElementById("matrix-k").value = String(example.colsK);
@@ -2147,6 +2281,13 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
             <span class="vector-line">Output: C = ${formatVector(example.expected)}</span>
           `;
+        } else if (problem.kind === "softmax-attention") {
+          bodyHtml = `
+            <span class="vector-line">Input:  Q (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        K (${example.sharedN} x ${example.colsK}) = ${formatMatrixInline(example.inputB, example.sharedN, example.colsK)}</span>
+            <span class="vector-line">        V (${example.sharedN} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.sharedN, example.colsK)}</span>
+            <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
+          `;
         } else if (problem.kind === "softmax") {
           bodyHtml = `
             <span class="vector-line">Input:  x = ${formatVector(example.inputA)}</span>
@@ -2221,23 +2362,31 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         return;
       }
 
-      const usesSecondInput = problem.kind === "vector-add" || problem.kind === "matrix-multiplication";
+      const usesSecondInput =
+        problem.kind === "vector-add" ||
+        problem.kind === "matrix-multiplication" ||
+        problem.kind === "softmax-attention";
+      const usesThirdInput = problem.kind === "softmax-attention";
       const isMatrixMultiply = problem.kind === "matrix-multiplication";
       const isTranspose = problem.kind === "matrix-transpose";
-      const usesMatrixDims = isMatrixMultiply || isTranspose;
+      const isAttention = problem.kind === "softmax-attention";
+      const usesMatrixDims = isMatrixMultiply || isTranspose || isAttention;
       const canRun = problem.supportsRun;
       const canCompile = problem.supportsCudaCompile;
       const matrixDims = document.getElementById("matrix-dims");
       const testcaseHelp = document.getElementById("testcase-help");
       const inputA = document.getElementById("input-a");
       const inputB = document.getElementById("input-b");
+      const inputC = document.getElementById("input-c");
       const inputBField = document.getElementById("input-b-field");
+      const inputCField = document.getElementById("input-c-field");
       const matrixM = document.getElementById("matrix-m");
       const matrixN = document.getElementById("matrix-n");
       const matrixK = document.getElementById("matrix-k");
       const matrixKField = document.getElementById("matrix-k-field");
       const matrixMLabel = document.getElementById("matrix-m-label");
       const matrixNLabel = document.getElementById("matrix-n-label");
+      const matrixKLabel = document.getElementById("matrix-k-label");
       const resetButton = document.getElementById("reset-button");
       const runButton = document.getElementById("run-button");
       const fileInput = document.getElementById("cuda-file");
@@ -2249,6 +2398,8 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
           ? "Vector A"
           : (problem.kind === "reduction" || problem.kind === "softmax")
             ? "Input Array"
+          : isAttention
+            ? "Matrix Q (row-major)"
           : isMatrixMultiply
             ? "Matrix A (row-major)"
             : isTranspose
@@ -2257,20 +2408,27 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       document.getElementById("input-b-label").textContent =
         problem.kind === "vector-add"
           ? "Vector B"
+          : isAttention
+            ? "Matrix K (row-major)"
           : isMatrixMultiply
             ? "Matrix B (row-major)"
             : isTranspose
               ? "Unused"
             : "Input B";
+      document.getElementById("input-c-label").textContent =
+        isAttention ? "Matrix V (row-major)" : "Input C";
 
       matrixMLabel.textContent = isTranspose ? "Input Rows" : "Rows M";
-      matrixNLabel.textContent = isTranspose ? "Input Cols" : "Shared N";
+      matrixNLabel.textContent = isTranspose ? "Input Cols" : isAttention ? "Keys N" : "Shared N";
+      matrixKLabel.textContent = isAttention ? "Feature d" : "Cols K";
 
       inputA.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "1.0, 2.0, 3.0"
           : (problem.kind === "reduction" || problem.kind === "softmax")
             ? "1.0, 2.0, 3.0, 4.0"
+          : isAttention
+            ? "1.0, 0.0, 0.0, 0.0"
           : isMatrixMultiply
             ? "1.0, 2.0, 3.0, 4.0"
             : isTranspose
@@ -2278,17 +2436,28 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
               : "Input A")
         : "Browser judge is not available for this challenge.";
       inputB.placeholder = canRun
-        ? (problem.kind === "vector-add" ? "4.0, 5.0, 6.0" : isMatrixMultiply ? "5.0, 6.0, 7.0, 8.0" : "")
+        ? (problem.kind === "vector-add"
+          ? "4.0, 5.0, 6.0"
+          : isAttention
+            ? "1.0, 0.0, 0.0, 0.0"
+            : isMatrixMultiply
+              ? "5.0, 6.0, 7.0, 8.0"
+              : "")
+        : "Browser judge is not available for this challenge.";
+      inputC.placeholder = canRun
+        ? (isAttention ? "1.0, 2.0, 3.0, 4.0" : "")
         : "Browser judge is not available for this challenge.";
 
       inputA.disabled = !canRun;
       inputB.disabled = !canRun || !usesSecondInput;
+      inputC.disabled = !canRun || !usesThirdInput;
       inputBField.hidden = !usesSecondInput;
+      inputCField.hidden = !usesThirdInput;
       matrixDims.hidden = !usesMatrixDims;
-      matrixKField.hidden = !isMatrixMultiply;
+      matrixKField.hidden = !(isMatrixMultiply || isAttention);
       matrixM.disabled = !canRun || !usesMatrixDims;
       matrixN.disabled = !canRun || !usesMatrixDims;
-      matrixK.disabled = !canRun || !isMatrixMultiply;
+      matrixK.disabled = !canRun || !(isMatrixMultiply || isAttention);
 
       fileInput.disabled = !canCompile;
       setCudaSourceEditorDisabled(!canCompile);
@@ -2426,6 +2595,8 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       summary.innerHTML = '<span class="pill">Waiting for a run</span>';
       if (problem.kind === "matrix-transpose") {
         vector.textContent = "A^T = [ waiting for a run ]";
+      } else if (problem.kind === "softmax-attention") {
+        vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "softmax") {
         vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "reduction") {
@@ -2615,6 +2786,44 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         const item = document.createElement("li");
         item.className = "result-item";
         item.innerHTML = `<strong>output[${i}] = ${formatNumber(output[i])}</strong>expected=${formatNumber(expected[i])}, input=${formatNumber(inputA[i])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderSoftmaxAttentionResults(inputQ, inputK, inputV, rowsM, sharedN, featureD, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildSoftmaxAttentionExpected(inputQ, inputK, inputV, rowsM, sharedN, featureD);
+      const allMatch = arraysAlmostEqual(output, expected, 5e-3);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${rowsM} x ${featureD}`;
+
+      const reference = document.createElement("span");
+      reference.className = "pill";
+      reference.textContent = "Reference: CPU softmax attention";
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(reference);
+
+      vector.textContent = `output = ${formatMatrixMultiline(output, rowsM, featureD)}`;
+
+      const actualRows = buildMatrixRows(output, rowsM, featureD);
+      const expectedRows = buildMatrixRows(expected, rowsM, featureD);
+      for (let row = 0; row < rowsM; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
         list.appendChild(item);
       }
     }
@@ -3028,6 +3237,80 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       }
     }
 
+    function runSoftmaxAttention() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsM = parsePositiveInt(document.getElementById("matrix-m").value);
+      const sharedN = parsePositiveInt(document.getElementById("matrix-n").value);
+      const featureD = parsePositiveInt(document.getElementById("matrix-k").value);
+
+      if (rowsM === null || sharedN === null || featureD === null) {
+        pushLog("M, N, and d must all be positive integers.", "stderr");
+        return;
+      }
+
+      const inputQ = parseFloatList(document.getElementById("input-a").value);
+      const inputK = parseFloatList(document.getElementById("input-b").value);
+      const inputV = parseFloatList(document.getElementById("input-c").value);
+
+      if (inputQ.length !== rowsM * featureD) {
+        pushLog("Matrix Q length does not match M x d.", "stderr");
+        return;
+      }
+
+      if (inputK.length !== sharedN * featureD) {
+        pushLog("Matrix K length does not match N x d.", "stderr");
+        return;
+      }
+
+      if (inputV.length !== sharedN * featureD) {
+        pushLog("Matrix V length does not match N x d.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputQBytes = inputQ.length * Float32Array.BYTES_PER_ELEMENT;
+      const inputKBytes = inputK.length * Float32Array.BYTES_PER_ELEMENT;
+      const inputVBytes = inputV.length * Float32Array.BYTES_PER_ELEMENT;
+      const inputQPtr = window.Module._malloc(inputQBytes);
+      const inputKPtr = window.Module._malloc(inputKBytes);
+      const inputVPtr = window.Module._malloc(inputVBytes);
+
+      try {
+        window.Module.HEAPF32.set(inputQ, inputQPtr >> 2);
+        window.Module.HEAPF32.set(inputK, inputKPtr >> 2);
+        window.Module.HEAPF32.set(inputV, inputVPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_softmax_attention",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputQPtr, inputQ.length, inputKPtr, inputK.length, inputVPtr, inputV.length, rowsM, sharedN, featureD]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderSoftmaxAttentionResults(inputQ, inputK, inputV, rowsM, sharedN, featureD, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputQPtr);
+        window.Module._free(inputKPtr);
+        window.Module._free(inputVPtr);
+      }
+    }
+
     function runSelectedProblem() {
       const problem = getCurrentProblem();
       if (!problem) {
@@ -3056,6 +3339,11 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
 
       if (problem.kind === "softmax") {
         runSoftmax();
+        return;
+      }
+
+      if (problem.kind === "softmax-attention") {
+        runSoftmaxAttention();
         return;
       }
 

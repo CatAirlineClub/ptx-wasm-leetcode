@@ -25,9 +25,10 @@ bool RegisterBank::initialize(size_t numRegisters, size_t numFloatRegisters) {
         m_floatRegisters.resize(numFloatRegisters, 0);
         m_numFloatRegisters = numFloatRegisters;
         
-        // 初始化谓词寄存器（PTX 通常有 8 个）
-        m_predicateRegisters.resize(8, false);
-        m_numPredicateRegisters = 8;
+        // Allocate a larger predicate file so browser-side kernels with
+        // compiler-generated control flow do not run out of %p registers.
+        m_predicateRegisters.resize(128, false);
+        m_numPredicateRegisters = 128;
         
         return true;
     } catch (const std::bad_alloc&) {

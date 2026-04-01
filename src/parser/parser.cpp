@@ -7,6 +7,7 @@
 #include <cctype>
 #include <algorithm>
 #include <cstring>
+#include <optional>
 
 // PTXInstruction is defined in instruction_types.hpp (included via parser.hpp)
 
@@ -41,6 +42,22 @@ bool parsePTXHexImmediate(const std::string& token, int64_t& outValue)
     }
 
     return false;
+}
+
+std::optional<DataType> parseDataTypeModifier(const std::string& mod)
+{
+    if (mod == ".s8") return DataType::S8;
+    if (mod == ".s16") return DataType::S16;
+    if (mod == ".s32") return DataType::S32;
+    if (mod == ".s64") return DataType::S64;
+    if (mod == ".u8") return DataType::U8;
+    if (mod == ".u16") return DataType::U16;
+    if (mod == ".u32") return DataType::U32;
+    if (mod == ".u64") return DataType::U64;
+    if (mod == ".f16") return DataType::F16;
+    if (mod == ".f32") return DataType::F32;
+    if (mod == ".f64") return DataType::F64;
+    return std::nullopt;
 }
 
 } // namespace
@@ -412,40 +429,26 @@ DecodedInstruction PTXParser::Impl::convertToDecoded(const PTXInstruction &ptxIn
     // Parse data type from modifiers
     decoded.dataType = DataType::U32; // default
     for (const auto& mod : ptxInstr.modifiers) {
-        if (mod == ".s8") decoded.dataType = DataType::S8;
-        else if (mod == ".s16") decoded.dataType = DataType::S16;
-        else if (mod == ".s32") decoded.dataType = DataType::S32;
-        else if (mod == ".s64") decoded.dataType = DataType::S64;
-        else if (mod == ".u8") decoded.dataType = DataType::U8;
-        else if (mod == ".u16") decoded.dataType = DataType::U16;
-        else if (mod == ".u32") decoded.dataType = DataType::U32;
-        else if (mod == ".u64") decoded.dataType = DataType::U64;
-        else if (mod == ".f16") decoded.dataType = DataType::F16;
-        else if (mod == ".f32") decoded.dataType = DataType::F32;
-        else if (mod == ".f64") decoded.dataType = DataType::F64;
+        if (const auto dataType = parseDataTypeModifier(mod)) {
+            decoded.dataType = *dataType;
+        }
     }
     
-    // Parse CVT instruction types (cvt.dstType.srcType)
-    // For CVT, modifiers are in format: [".cvt", ".dstType", ".srcType"]
-    if (ptxInstr.opcode == "cvt" && ptxInstr.modifiers.size() >= 2) {
-        // First modifier is destination type, second is source type
-        auto parseType = [](const std::string& mod) -> DataType {
-            if (mod == ".s8") return DataType::S8;
-            if (mod == ".s16") return DataType::S16;
-            if (mod == ".s32") return DataType::S32;
-            if (mod == ".s64") return DataType::S64;
-            if (mod == ".u8") return DataType::U8;
-            if (mod == ".u16") return DataType::U16;
-            if (mod == ".u32") return DataType::U32;
-            if (mod == ".u64") return DataType::U64;
-            if (mod == ".f16") return DataType::F16;
-            if (mod == ".f32") return DataType::F32;
-            if (mod == ".f64") return DataType::F64;
-            return DataType::U32;
-        };
-        
-        decoded.dstType = parseType(ptxInstr.modifiers[0]);
-        decoded.srcType = parseType(ptxInstr.modifiers[1]);
+    // Parse CVT instruction types. PTX may include rounding or saturation
+    // modifiers before the actual dst/src types, for example
+    // "cvt.rn.f32.s32". We therefore pick the first two *type* modifiers.
+    if (ptxInstr.opcode == "cvt") {
+        std::vector<DataType> typeModifiers;
+        for (const auto& mod : ptxInstr.modifiers) {
+            if (const auto dataType = parseDataTypeModifier(mod)) {
+                typeModifiers.push_back(*dataType);
+            }
+        }
+
+        if (typeModifiers.size() >= 2) {
+            decoded.dstType = typeModifiers[0];
+            decoded.srcType = typeModifiers[1];
+        }
     }
     
     // Parse memory space from modifiers (for ld/st instructions)

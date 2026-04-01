@@ -881,7 +881,7 @@
           <div class="eyebrow">Problem Set</div>
           <h2>LeetGPU Browser Catalog</h2>
           <p class="muted">
-            左边是 1 到 74 题的题库目录。当前浏览器 judge 已支持第 1 题、第 2 题和第 3 题完整运行，其他题先提供题面与 CUDA starter 预览，能否编译和运行会在界面里明确标注。
+            左边是 1 到 74 题的题库目录。当前浏览器 judge 已支持第 1 题到第 4 题完整运行，其他题先提供题面与 CUDA starter 预览，能否编译和运行会在界面里明确标注。
           </p>
           <ul id="problem-list" class="problem-list"></ul>
         </div>
@@ -1231,6 +1231,46 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
             cols: 1,
             inputA: [1.0, 2.0, 3.0],
             expected: [1.0, 2.0, 3.0]
+          }
+        ]
+      },
+      4: {
+        kind: "reduction",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract:
+          "The browser judge expects a PTX entry kernel with one input pointer, one output pointer, and one 32-bit length N. For browser compatibility, write the final sum directly into output[0] inside solve without launching child kernels.",
+        submissionHint:
+          "Write or import a .cu submission on the right side. The browser runner replays a single solve thread, so prefer a direct reduction loop inside an extern \"C\" __global__ solve kernel.",
+        testcaseHint:
+          "Paste one float array. The judge compares output[0] against a CPU sum.",
+        testcaseHelp:
+          "Input array must contain N floats. The browser judge validates that output[0] equals the CPU reduction result.",
+        resultTitle: "Reduced Output",
+        resultSubtitle:
+          "The final reduced sum must be stored in output[0]. The judge compares it to a CPU sum.",
+        starterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        float sum = 0.0f;
+        for (int i = 0; i < N; i = i + 1) {
+            // TODO: accumulate input[i] into sum.
+        }
+        output[0] = sum;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            expected: 36.0
+          },
+          {
+            label: "Example 2",
+            inputA: [-2.5, 1.5, -1.0, 2.0],
+            expected: 0.0
           }
         ]
       }
@@ -1758,6 +1798,14 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
       return result;
     }
 
+    function buildReductionExpected(inputA) {
+      let sum = 0.0;
+      for (const value of inputA) {
+        sum += value;
+      }
+      return sum;
+    }
+
     function arraysAlmostEqual(actual, expected, tolerance = 1e-4) {
       return actual.length === expected.length &&
         actual.every((value, index) => Math.abs(value - expected[index]) <= tolerance);
@@ -1879,6 +1927,10 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
       } else if (problem.kind === "matrix-transpose") {
         document.getElementById("matrix-m").value = String(example.rows);
         document.getElementById("matrix-n").value = String(example.cols);
+        document.getElementById("matrix-k").value = "";
+      } else {
+        document.getElementById("matrix-m").value = "";
+        document.getElementById("matrix-n").value = "";
         document.getElementById("matrix-k").value = "";
       }
 
@@ -2021,6 +2073,11 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
             <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
             <span class="vector-line">Output: C = ${formatVector(example.expected)}</span>
           `;
+        } else if (problem.kind === "reduction") {
+          bodyHtml = `
+            <span class="vector-line">Input:  X = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
+          `;
         } else if (problem.kind === "matrix-transpose") {
           bodyHtml = `
             <span class="vector-line">Input:  A (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
@@ -2085,6 +2142,7 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
         return;
       }
 
+      const usesSecondInput = problem.kind === "vector-add" || problem.kind === "matrix-multiplication";
       const isMatrixMultiply = problem.kind === "matrix-multiplication";
       const isTranspose = problem.kind === "matrix-transpose";
       const usesMatrixDims = isMatrixMultiply || isTranspose;
@@ -2110,6 +2168,8 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
       document.getElementById("input-a-label").textContent =
         problem.kind === "vector-add"
           ? "Vector A"
+          : problem.kind === "reduction"
+            ? "Input Array"
           : isMatrixMultiply
             ? "Matrix A (row-major)"
             : isTranspose
@@ -2130,6 +2190,8 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
       inputA.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "1.0, 2.0, 3.0"
+          : problem.kind === "reduction"
+            ? "1.0, 2.0, 3.0, 4.0"
           : isMatrixMultiply
             ? "1.0, 2.0, 3.0, 4.0"
             : isTranspose
@@ -2141,8 +2203,8 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
         : "Browser judge is not available for this challenge.";
 
       inputA.disabled = !canRun;
-      inputB.disabled = !canRun || isTranspose;
-      inputBField.hidden = isTranspose;
+      inputB.disabled = !canRun || !usesSecondInput;
+      inputBField.hidden = !usesSecondInput;
       matrixDims.hidden = !usesMatrixDims;
       matrixKField.hidden = !isMatrixMultiply;
       matrixM.disabled = !canRun || !usesMatrixDims;
@@ -2283,9 +2345,13 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
       }
 
       summary.innerHTML = '<span class="pill">Waiting for a run</span>';
-      vector.textContent = problem.kind === "matrix-transpose"
-        ? "A^T = [ waiting for a run ]"
-        : "C = [ waiting for a run ]";
+      if (problem.kind === "matrix-transpose") {
+        vector.textContent = "A^T = [ waiting for a run ]";
+      } else if (problem.kind === "reduction") {
+        vector.textContent = "output[0] = [ waiting for a run ]";
+      } else {
+        vector.textContent = "C = [ waiting for a run ]";
+      }
     }
 
     function renderVectorResults(inputA, inputB, output) {
@@ -2398,6 +2464,41 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
         item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
         list.appendChild(item);
       }
+    }
+
+    function renderReductionResults(inputA, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildReductionExpected(inputA);
+      const actual = output[0];
+      const allMatch = output.length === 1 && Math.abs(actual - expected) <= 1e-3;
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const count = document.createElement("span");
+      count.className = "pill";
+      count.textContent = `Elements: ${inputA.length}`;
+
+      const expectedBadge = document.createElement("span");
+      expectedBadge.className = "pill";
+      expectedBadge.textContent = `Expected output[0] = ${formatNumber(expected)}`;
+
+      summary.appendChild(status);
+      summary.appendChild(count);
+      summary.appendChild(expectedBadge);
+
+      vector.textContent = `output[0] = ${formatNumber(actual)}`;
+
+      const item = document.createElement("li");
+      item.className = "result-item";
+      item.innerHTML = `<strong>Reduction Result</strong>actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`;
+      list.appendChild(item);
     }
 
     function ensureModuleWorkspace(module) {
@@ -2721,6 +2822,50 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
       }
     }
 
+    function runReduction() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length === 0) {
+        pushLog("Input array must contain at least one float.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABytes = inputA.length * Float32Array.BYTES_PER_ELEMENT;
+      const inputAPtr = window.Module._malloc(inputABytes);
+
+      try {
+        window.Module.HEAPF32.set(inputA, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_reduction",
+          "number",
+          ["string", "number", "number"],
+          [kernelName, inputAPtr, inputA.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderReductionResults(inputA, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
     function runSelectedProblem() {
       const problem = getCurrentProblem();
       if (!problem) {
@@ -2739,6 +2884,11 @@ extern "C" void solve(const float* input, float* output, int rows, int cols) {
 
       if (problem.kind === "matrix-transpose") {
         runMatrixTranspose();
+        return;
+      }
+
+      if (problem.kind === "reduction") {
+        runReduction();
         return;
       }
 

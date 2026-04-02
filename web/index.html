@@ -811,6 +811,12 @@
       margin-bottom: 6px;
     }
 
+    .inline-note {
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 0.88rem;
+    }
+
     @media (max-width: 1180px) {
       .workspace {
         grid-template-columns: 1fr;
@@ -1064,6 +1070,10 @@
               <div class="button-row">
                 <button id="run-button" class="primary" type="button" disabled>Run Judge</button>
                 <button id="reset-button" class="secondary" type="button">Reset to Example 1</button>
+              </div>
+
+              <div id="run-status-note" class="inline-note">
+                Compile a CUDA submission and choose a detected entry kernel to enable Run Judge.
               </div>
             </div>
           </div>
@@ -1907,97 +1917,310 @@ extern "C" __global__ void solve(const int* input,
         judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
         testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
         resultTitle: "Prefix Sum Output",
-        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the CPU prefix sum."
+        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the CPU prefix sum.",
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 2.0, 3.0, 4.0],
+            expected: [1.0, 3.0, 6.0, 10.0]
+          }
+        ]
       },
       17: {
         kind: "dot-product",
         supportsRun: true,
         supportsCudaCompile: true,
         judgeContract: "The browser judge expects a PTX entry kernel with two input pointers, one output pointer, and a 32-bit N scalar.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the final scalar dot product into output[0].",
         testcaseHint: "Paste two comma-separated float arrays for input A and input B. The browser judge derives N from the input length.",
         resultTitle: "Dot Product Output",
-        resultSubtitle: "The final result must be stored in the output scalar. The judge compares it to the CPU dot product."
+        resultSubtitle: "The final result must be stored in the output scalar. The judge compares it to the CPU dot product.",
+        signatureHint: `extern "C" __global__ void solve(const float* inputA, const float* inputB, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* inputA,
+                                 const float* inputB,
+                                 float* output,
+                                 int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        float sum = 0.0f;
+        for (int i = 0; i < N; i = i + 1) {
+            // TODO: accumulate inputA[i] * inputB[i] into sum.
+        }
+        output[0] = sum;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 2.0, 3.0, 4.0],
+            inputB: [5.0, 6.0, 7.0, 8.0],
+            expected: 70.0
+          },
+          {
+            label: "Example 2",
+            inputA: [0.5, 1.5, 2.5],
+            inputB: [2.0, 3.0, 4.0],
+            expected: 15.5
+          }
+        ]
       },
       19: {
         kind: "reverse-array",
         supportsRun: true,
         supportsCudaCompile: true,
         judgeContract: "The browser judge expects a PTX entry kernel with input pointer and a 32-bit N scalar.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the reversed array into output.",
         testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
         resultTitle: "Reverse Array Output",
-        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the reversed input array."
+        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the reversed input array.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < N; i = i + 1) {
+            // TODO: write input[N - 1 - i] into output[i].
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 2.0, 3.0, 4.0],
+            expected: [4.0, 3.0, 2.0, 1.0]
+          }
+        ]
       },
       21: {
         kind: "relu",
         supportsRun: true,
         supportsCudaCompile: true,
         judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the elementwise ReLU output into the output array.",
         testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
         resultTitle: "ReLU Output",
-        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to max(0, input[i])."
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to max(0, input[i]).",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < N) {
+        // TODO: write max(0.0f, input[idx]) into output[idx].
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [-2.0, -0.5, 0.0, 3.0],
+            expected: [0.0, 0.0, 0.0, 3.0]
+          }
+        ]
       },
       23: {
         kind: "leaky-relu",
         supportsRun: true,
         supportsCudaCompile: true,
         judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the elementwise leaky ReLU output into the output array.",
         testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
         resultTitle: "Leaky ReLU Output",
-        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to (x >= 0 ? x : 0.01 * x)."
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to (x >= 0 ? x : 0.01 * x).",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < N) {
+        // TODO: write input[idx] when it is non-negative, otherwise 0.01f * input[idx].
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [-2.0, -0.5, 0.0, 3.0],
+            expected: [-0.02, -0.005, 0.0, 3.0]
+          }
+        ]
       },
       31: {
         kind: "matrix-copy",
         supportsRun: true,
         supportsCudaCompile: true,
         judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that copies the input buffer into output.",
         testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
         resultTitle: "Matrix Copy Output",
-        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the input array."
+        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the input array.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < N) {
+        // TODO: copy input[idx] into output[idx].
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 2.0, 3.0, 4.0],
+            expected: [1.0, 2.0, 3.0, 4.0]
+          }
+        ]
       },
       52: {
         kind: "silu",
         supportsRun: true,
         supportsCudaCompile: true,
         judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes x / (1 + exp(-x)) elementwise into output.",
         testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
         resultTitle: "SiLU Output",
-        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to x / (1 + exp(-x))."
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to x / (1 + exp(-x)).",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < N) {
+        float x = input[idx];
+        // TODO: write x / (1.0f + expf(-x)) into output[idx].
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [-1.0, 0.0, 1.0, 2.0],
+            expected: [-0.268941, 0.0, 0.731059, 1.761594]
+          }
+        ]
       },
       54: {
         kind: "swish",
         supportsRun: true,
         supportsCudaCompile: true,
         judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the swish activation elementwise into output.",
         testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
         resultTitle: "Swish Output",
-        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to x / (1 + exp(-x))."
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to x / (1 + exp(-x)).",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < N) {
+        float x = input[idx];
+        // TODO: write x / (1.0f + expf(-x)) into output[idx].
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [-1.0, 0.0, 1.0, 2.0],
+            expected: [-0.268941, 0.0, 0.731059, 1.761594]
+          }
+        ]
       },
       65: {
         kind: "gelu",
         supportsRun: true,
         supportsCudaCompile: true,
         judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the approximate GELU activation elementwise into output.",
         testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
         resultTitle: "GELU Output",
-        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to the approximate GELU."
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to the approximate GELU.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < N) {
+        float x = input[idx];
+        float c1 = 0.7978845608f;
+        float c2 = 0.044715f;
+        // TODO: write the tanh-based GELU approximation into output[idx].
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [-1.0, 0.0, 1.0, 2.0],
+            expected: [-0.158808, 0.0, 0.841192, 1.954598]
+          }
+        ]
       },
       68: {
         kind: "sigmoid",
         supportsRun: true,
         supportsCudaCompile: true,
         judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the sigmoid activation elementwise into output.",
         testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
         resultTitle: "Sigmoid Output",
-        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to 1 / (1 + exp(-x))."
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to 1 / (1 + exp(-x)).",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < N) {
+        float x = input[idx];
+        // TODO: write 1.0f / (1.0f + expf(-x)) into output[idx].
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [-1.0, 0.0, 1.0, 2.0],
+            expected: [0.268941, 0.5, 0.731059, 0.880797]
+          }
+        ]
       },
       72: {
         kind: "stream-compaction",
         supportsRun: true,
         supportsCudaCompile: true,
         judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the non-zero values of input into output in order.",
         testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
         resultTitle: "Stream Compaction Output",
-        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the filtered input (non-zero elements)."
+        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the filtered input (non-zero elements).",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int outIdx = 0;
+        for (int i = 0; i < N; i = i + 1) {
+            // TODO: if input[i] is non-zero, write it to output[outIdx] and increment outIdx.
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [0.0, 3.0, 0.0, 4.0, 5.0, 0.0],
+            expected: [3.0, 4.0, 5.0]
+          }
+        ]
       }
     };
 
@@ -2299,6 +2522,8 @@ extern "C" __global__ void solve(const int* input,
     function finalizeProblem(problem) {
       const starterCode = typeof problem.starterCode === "string" ? problem.starterCode : "";
       const editorStarterCode = typeof problem.editorStarterCode === "string" ? problem.editorStarterCode : "";
+      const supportsRun = Boolean(problem.supportsRun);
+      const unsupportedReason = supportsRun ? "" : (problem.unsupportedReason || "");
       const finalized = {
         id: zeroPad(problem.numericId),
         numericId: problem.numericId,
@@ -2307,9 +2532,9 @@ extern "C" __global__ void solve(const int* input,
         accessTier: problem.accessTier || "unknown",
         available: problem.available !== false,
         kind: problem.kind || "metadata-only",
-        supportsRun: Boolean(problem.supportsRun),
+        supportsRun,
         supportsCudaCompile: Boolean(problem.supportsCudaCompile && (starterCode.trim() || editorStarterCode.trim())),
-        unsupportedReason: problem.unsupportedReason || "",
+        unsupportedReason,
         specHtml: problem.specHtml || "<p>No challenge description is available.</p>",
         starterCode,
         editorStarterCode,
@@ -2317,7 +2542,7 @@ extern "C" __global__ void solve(const int* input,
         examples: Array.isArray(problem.examples) ? cloneJson(problem.examples) : [],
         judgeContract:
           problem.judgeContract ||
-          problem.unsupportedReason ||
+          unsupportedReason ||
           "The browser judge is not implemented for this challenge yet.",
         submissionHint:
           problem.submissionHint ||
@@ -2328,18 +2553,20 @@ extern "C" __global__ void solve(const int* input,
           ),
         testcaseHint:
           problem.testcaseHint ||
-          (problem.supportsRun
+          (supportsRun
             ? "Use the official examples or paste your own testcase."
             : "A browser-side judge is not available for this challenge yet."),
         testcaseHelp:
           problem.testcaseHelp ||
-          problem.unsupportedReason ||
-          "A browser-side judge is not available for this challenge yet.",
-        resultTitle: problem.resultTitle || (problem.supportsRun ? "Judge Result" : "Judge Status"),
+          (supportsRun
+            ? "Use the official examples or paste your own testcase, then compile your CUDA submission and run the detected kernel."
+            : unsupportedReason || "A browser-side judge is not available for this challenge yet."),
+        resultTitle: problem.resultTitle || (supportsRun ? "Judge Result" : "Judge Status"),
         resultSubtitle:
           problem.resultSubtitle ||
-          problem.unsupportedReason ||
-          "A browser-side judge is not available for this challenge yet."
+          (supportsRun
+            ? "Compile a CUDA submission, then run the detected kernel against the browser testcase."
+            : unsupportedReason || "A browser-side judge is not available for this challenge yet.")
       };
 
       finalized.supportState = getSupportState(finalized);
@@ -2355,8 +2582,25 @@ extern "C" __global__ void solve(const int* input,
         return finalizeProblem(problem);
       }
 
+      const unavailableJudgeContract = "The browser judge is not implemented for this challenge yet.";
+      const unavailableTestcaseHint = "A browser-side judge is not available for this challenge yet.";
+      const unavailableResultTitle = "Judge Status";
+
+      const sanitizedProblem =
+        override.supportsRun && !problem.supportsRun
+          ? {
+              ...problem,
+              unsupportedReason: "",
+              judgeContract: problem.judgeContract === unavailableJudgeContract ? "" : problem.judgeContract,
+              testcaseHint: problem.testcaseHint === unavailableTestcaseHint ? "" : problem.testcaseHint,
+              testcaseHelp: problem.testcaseHelp === unavailableJudgeContract ? "" : problem.testcaseHelp,
+              resultTitle: problem.resultTitle === unavailableResultTitle ? "" : problem.resultTitle,
+              resultSubtitle: problem.resultSubtitle === unavailableJudgeContract ? "" : problem.resultSubtitle
+            }
+          : problem;
+
       return finalizeProblem({
-        ...problem,
+        ...sanitizedProblem,
         ...cloneJson(override),
         examples: Array.isArray(override.examples) ? cloneJson(override.examples) : problem.examples
       });
@@ -2922,6 +3166,34 @@ extern "C" __global__ void solve(const int* input,
       if (runButton) {
         runButton.disabled = true;
       }
+
+      updateRunStatusNote(problem, "awaiting-compile");
+    }
+
+    function updateRunStatusNote(problem, state = "awaiting-compile") {
+      const note = document.getElementById("run-status-note");
+      if (!note || !problem) {
+        return;
+      }
+
+      if (!problem.supportsRun) {
+        note.textContent = problem.supportsCudaCompile
+          ? "This challenge is compile-only in the browser right now. You can inspect the generated PTX, but Run Judge stays disabled."
+          : "This challenge does not have a browser judge or browser compile flow yet.";
+        return;
+      }
+
+      switch (state) {
+        case "ready":
+          note.textContent = "Run Judge is ready. The detected entry kernel will be executed against the current testcase.";
+          break;
+        case "missing-kernel":
+          note.textContent = "Compilation succeeded, but no entry kernel was detected in the generated PTX. Export an extern \"C\" __global__ solve kernel and compile again.";
+          break;
+        default:
+          note.textContent = "Compile a CUDA submission and choose a detected entry kernel to enable Run Judge.";
+          break;
+      }
     }
 
     function renderProblemBadges(problem) {
@@ -3213,6 +3485,12 @@ extern "C" __global__ void solve(const int* input,
             <span class="vector-line">Input:  x = ${formatVector(example.inputA)}</span>
             <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
           `;
+        } else if (problem.kind === "dot-product") {
+          bodyHtml = `
+            <span class="vector-line">Input:  A = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
+          `;
         } else if (problem.kind === "reduction") {
           bodyHtml = `
             <span class="vector-line">Input:  X = ${formatVector(example.inputA)}</span>
@@ -3228,6 +3506,26 @@ extern "C" __global__ void solve(const int* input,
             <span class="vector-line">Input:  input = [${example.inputA.join(", ")}]</span>
             <span class="vector-line">        num_bins = ${example.numBins}</span>
             <span class="vector-line">Output: histogram = [${example.expected.join(", ")}]</span>
+          `;
+        } else if (problem.kind === "prefix-sum") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
+          `;
+        } else if (
+          problem.kind === "reverse-array" ||
+          problem.kind === "matrix-copy" ||
+          problem.kind === "relu" ||
+          problem.kind === "leaky-relu" ||
+          problem.kind === "silu" ||
+          problem.kind === "swish" ||
+          problem.kind === "gelu" ||
+          problem.kind === "sigmoid" ||
+          problem.kind === "stream-compaction"
+        ) {
+          bodyHtml = `
+            <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
           `;
         } else {
           bodyHtml = `
@@ -3506,6 +3804,7 @@ extern "C" __global__ void solve(const int* input,
       resetButton.disabled = !canRun || problem.examples.length === 0;
       runButton.disabled = true;
       testcaseHelp.textContent = problem.testcaseHelp;
+      updateRunStatusNote(problem, canRun ? "awaiting-compile" : "compile-only");
     }
 
     function resetSourceEditor(pushMessage = true) {
@@ -4433,6 +4732,7 @@ extern "C" __global__ void solve(const int* input,
 
       select.disabled = entryCount === 0;
       document.getElementById("run-button").disabled = entryCount === 0 || !problem.supportsRun;
+      updateRunStatusNote(problem, entryCount === 0 ? "missing-kernel" : "ready");
 
       renderKernelMetadata();
       renderEmptyState();

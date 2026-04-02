@@ -2060,6 +2060,546 @@ public:
         return true;
     }
 
+    bool runElementwiseDemo(const std::string& kernelName,
+                           const float* input,
+                           int inputLen) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (input == nullptr) {
+            lastError_ = "Input buffer must not be null.";
+            return false;
+        }
+
+        if (inputLen <= 0) {
+            lastError_ = "Input array must contain at least one float.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = static_cast<size_t>(inputLen) * sizeof(float);
+        const size_t outputBytes = inputBytes;
+        const std::vector<float> zeroOutput(static_cast<size_t>(inputLen), 0.0f);
+        const CUdeviceptr inputPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputPtr, input, inputBytes)) {
+            lastError_ = "Failed to copy the input array into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output buffer in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputPtr, 8, 0});
+        params.push_back({outputPtr, 8, 8});
+        params.push_back({static_cast<CUdeviceptr>(inputLen), 4, 16});
+
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(static_cast<size_t>(inputLen), 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the output failed.";
+            return false;
+        }
+
+        return true;
+    }
+
+    bool runElementwiseIntDemo(const std::string& kernelName,
+                              const std::int32_t* input,
+                              int inputLen) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (input == nullptr) {
+            lastError_ = "Input buffer must not be null.";
+            return false;
+        }
+
+        if (inputLen <= 0) {
+            lastError_ = "Input array must contain at least one int.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = static_cast<size_t>(inputLen) * sizeof(std::int32_t);
+        const size_t outputBytes = inputBytes;
+        const std::vector<std::int32_t> zeroOutput(static_cast<size_t>(inputLen), 0);
+        const CUdeviceptr inputPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputPtr, input, inputBytes)) {
+            lastError_ = "Failed to copy the input array into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output buffer in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputPtr, 8, 0});
+        params.push_back({outputPtr, 8, 8});
+        params.push_back({static_cast<CUdeviceptr>(inputLen), 4, 16});
+
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        std::vector<std::int32_t> output(static_cast<size_t>(inputLen), 0);
+        if (!vm->copyMemoryDtoH(output.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the output failed.";
+            return false;
+        }
+
+        lastResult_.assign(static_cast<size_t>(inputLen), 0.0f);
+        for (int i = 0; i < inputLen; ++i) {
+            lastResult_[static_cast<size_t>(i)] = static_cast<float>(output[static_cast<size_t>(i)]);
+        }
+
+        return true;
+    }
+
+    bool runMatrixCopyDemo(const std::string& kernelName,
+                          const float* input,
+                          int inputLen) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (input == nullptr) {
+            lastError_ = "Input buffer must not be null.";
+            return false;
+        }
+
+        if (inputLen <= 0) {
+            lastError_ = "Input array must contain at least one float.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = static_cast<size_t>(inputLen) * sizeof(float);
+        const size_t outputBytes = inputBytes;
+        const std::vector<float> zeroOutput(static_cast<size_t>(inputLen), 0.0f);
+        const CUdeviceptr inputPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputPtr, input, inputBytes)) {
+            lastError_ = "Failed to copy the input array into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output buffer in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputPtr, 8, 0});
+        params.push_back({outputPtr, 8, 8});
+        params.push_back({static_cast<CUdeviceptr>(inputLen), 4, 16});
+
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(static_cast<size_t>(inputLen), 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the output failed.";
+            return false;
+        }
+
+        return true;
+    }
+
+    bool runDotProductDemo(const std::string& kernelName,
+                           const float* inputA,
+                           int inputALen,
+                           const float* inputB,
+                           int inputBLen) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputA == nullptr || inputB == nullptr) {
+            lastError_ = "Input buffers must not be null.";
+            return false;
+        }
+
+        if (inputALen <= 0 || inputBLen <= 0) {
+            lastError_ = "Both input arrays must contain at least one float.";
+            return false;
+        }
+
+        if (inputALen != inputBLen) {
+            lastError_ = "Input A and Input B must have the same length.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = static_cast<size_t>(inputALen) * sizeof(float);
+        const size_t outputBytes = sizeof(float);
+        const float zeroOutput = 0.0f;
+        const CUdeviceptr inputAPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr inputBPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputAPtr, inputA, inputBytes)) {
+            lastError_ = "Failed to copy Input A into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputBPtr, inputB, inputBytes)) {
+            lastError_ = "Failed to copy Input B into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, &zeroOutput, outputBytes)) {
+            lastError_ = "Failed to initialize the output buffer in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputAPtr, 8, 0});
+        params.push_back({inputBPtr, 8, 8});
+        params.push_back({outputPtr, 8, 16});
+        params.push_back({static_cast<CUdeviceptr>(inputALen), 4, 24});
+
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        float outputValue = 0.0f;
+        if (!vm->copyMemoryDtoH(&outputValue, outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the dot product output failed.";
+            return false;
+        }
+
+        lastResult_.assign(1, outputValue);
+        return true;
+    }
+
+    bool runPrefixSumDemo(const std::string& kernelName,
+                         const float* input,
+                         int inputLen) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (input == nullptr) {
+            lastError_ = "Input buffer must not be null.";
+            return false;
+        }
+
+        if (inputLen <= 0) {
+            lastError_ = "Input array must contain at least one float.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = static_cast<size_t>(inputLen) * sizeof(float);
+        const size_t outputBytes = inputBytes;
+        const std::vector<float> zeroOutput(static_cast<size_t>(inputLen), 0.0f);
+        const CUdeviceptr inputPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputPtr, input, inputBytes)) {
+            lastError_ = "Failed to copy the input array into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output buffer in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputPtr, 8, 0});
+        params.push_back({outputPtr, 8, 8});
+        params.push_back({static_cast<CUdeviceptr>(inputLen), 4, 16});
+
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(static_cast<size_t>(inputLen), 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the output failed.";
+            return false;
+        }
+
+        return true;
+    }
+
+    bool runReverseArrayDemo(const std::string& kernelName,
+                             float* input,
+                             int inputLen) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (input == nullptr) {
+            lastError_ = "Input buffer must not be null.";
+            return false;
+        }
+
+        if (inputLen <= 0) {
+            lastError_ = "Input array must contain at least one float.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = static_cast<size_t>(inputLen) * sizeof(float);
+        const CUdeviceptr inputPtr = vm->allocateMemory(inputBytes);
+
+        if (!vm->copyMemoryHtoD(inputPtr, input, inputBytes)) {
+            lastError_ = "Failed to copy the input array into VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputPtr, 8, 0});
+        params.push_back({static_cast<CUdeviceptr>(inputLen), 4, 8});
+
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        std::vector<float> output(static_cast<size_t>(inputLen), 0.0f);
+        if (!vm->copyMemoryDtoH(output.data(), inputPtr, inputBytes)) {
+            lastError_ = "Kernel executed, but reading the output failed.";
+            return false;
+        }
+
+        lastResult_ = output;
+        return true;
+    }
+
     int getResultCount() const {
         return static_cast<int>(lastResult_.size());
     }
@@ -2529,6 +3069,50 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_color_inversion(const char* kernelName,
         imageLen,
         width,
         height) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_elementwise(const char* kernelName,
+                                               const float* input,
+                                               int inputLen) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runElementwiseDemo(chosenKernel, input, inputLen) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_elementwise_int(const char* kernelName,
+                                                    const std::int32_t* input,
+                                                    int inputLen) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runElementwiseIntDemo(chosenKernel, input, inputLen) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_matrix_copy(const char* kernelName,
+                                                const float* input,
+                                                int inputLen) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runMatrixCopyDemo(chosenKernel, input, inputLen) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_dot_product(const char* kernelName,
+                                                const float* inputA,
+                                                int inputALen,
+                                                const float* inputB,
+                                                int inputBLen) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runDotProductDemo(chosenKernel, inputA, inputALen, inputB, inputBLen) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_prefix_sum(const char* kernelName,
+                                               const float* input,
+                                               int inputLen) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runPrefixSumDemo(chosenKernel, input, inputLen) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_reverse_array(const char* kernelName,
+                                                  float* input,
+                                                  int inputLen) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runReverseArrayDemo(chosenKernel, input, inputLen) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int ptxvm_get_result_count() {

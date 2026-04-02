@@ -1899,6 +1899,105 @@ extern "C" __global__ void solve(const int* input,
             expected: [0, 0, 0, 4, 0]
           }
         ]
+      },
+      16: {
+        kind: "prefix-sum",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        resultTitle: "Prefix Sum Output",
+        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the CPU prefix sum."
+      },
+      17: {
+        kind: "dot-product",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with two input pointers, one output pointer, and a 32-bit N scalar.",
+        testcaseHint: "Paste two comma-separated float arrays for input A and input B. The browser judge derives N from the input length.",
+        resultTitle: "Dot Product Output",
+        resultSubtitle: "The final result must be stored in the output scalar. The judge compares it to the CPU dot product."
+      },
+      19: {
+        kind: "reverse-array",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input pointer and a 32-bit N scalar.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        resultTitle: "Reverse Array Output",
+        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the reversed input array."
+      },
+      21: {
+        kind: "relu",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        resultTitle: "ReLU Output",
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to max(0, input[i])."
+      },
+      23: {
+        kind: "leaky-relu",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        resultTitle: "Leaky ReLU Output",
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to (x >= 0 ? x : 0.01 * x)."
+      },
+      31: {
+        kind: "matrix-copy",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        resultTitle: "Matrix Copy Output",
+        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the input array."
+      },
+      52: {
+        kind: "silu",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        resultTitle: "SiLU Output",
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to x / (1 + exp(-x))."
+      },
+      54: {
+        kind: "swish",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        resultTitle: "Swish Output",
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to x / (1 + exp(-x))."
+      },
+      65: {
+        kind: "gelu",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        resultTitle: "GELU Output",
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to the approximate GELU."
+      },
+      68: {
+        kind: "sigmoid",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        resultTitle: "Sigmoid Output",
+        resultSubtitle: "The final result must be stored in the output array. The judge compares each element to 1 / (1 + exp(-x))."
+      },
+      72: {
+        kind: "stream-compaction",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, output pointers, and a 32-bit N scalar.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        resultTitle: "Stream Compaction Output",
+        resultSubtitle: "The final result must be stored in the output array. The judge compares it to the filtered input (non-zero elements)."
       }
     };
 
@@ -2589,6 +2688,48 @@ extern "C" __global__ void solve(const int* input,
       return histogram;
     }
 
+    function buildElementwiseExpected(kind, inputA) {
+      switch (kind) {
+        case "relu":
+          return inputA.map((v) => Math.max(0, v));
+        case "leaky-relu":
+          return inputA.map((v) => v >= 0 ? v : 0.01 * v);
+        case "silu":
+          return inputA.map((v) => v / (1 + Math.exp(-v)));
+        case "swish":
+          return inputA.map((v) => v / (1 + Math.exp(-v)));
+        case "gelu":
+          return inputA.map((v) => {
+            const c1 = 0.7978845608;
+            const c2 = 0.044715;
+            const t = Math.tanh(c1 * (v + c2 * v * v * v));
+            return 0.5 * v * (1 + t);
+          });
+        case "sigmoid":
+          return inputA.map((v) => 1 / (1 + Math.exp(-v)));
+        case "stream-compaction":
+          return inputA.filter((v) => v !== 0);
+        default:
+          return inputA;
+      }
+    }
+
+    function buildDotProductExpected(inputA, inputB) {
+      let sum = 0.0;
+      for (let i = 0; i < inputA.length; i += 1) {
+        sum += inputA[i] * inputB[i];
+      }
+      return sum;
+    }
+
+    function buildPrefixSumExpected(inputA) {
+      const result = [inputA[0]];
+      for (let i = 1; i < inputA.length; i += 1) {
+        result.push(result[i - 1] + inputA[i]);
+      }
+      return result;
+    }
+
     function buildSoftmaxExpected(inputA) {
       let maxValue = inputA[0];
       for (let i = 1; i < inputA.length; i += 1) {
@@ -3155,7 +3296,8 @@ extern "C" __global__ void solve(const int* input,
         problem.kind === "matrix-addition" ||
         problem.kind === "matrix-multiplication" ||
         problem.kind === "multi-head-attention" ||
-        problem.kind === "softmax-attention";
+        problem.kind === "softmax-attention" ||
+        problem.kind === "dot-product";
       const isSoftmaxAttention = problem.kind === "softmax-attention";
       const isMultiHeadAttention = problem.kind === "multi-head-attention";
       const usesThirdInput = isSoftmaxAttention || isMultiHeadAttention;
@@ -3248,6 +3390,8 @@ extern "C" __global__ void solve(const int* input,
             ? "Matrix B (row-major)"
           : isMatrixMultiply
             ? "Matrix B (row-major)"
+          : problem.kind === "dot-product"
+            ? "Vector B"
             : isTranspose
               ? "Unused"
             : "Input B";
@@ -4023,6 +4167,209 @@ extern "C" __global__ void solve(const int* input,
         item.innerHTML = `<strong>Pixel (${row}, ${col})</strong>actual=${formatByteVector(actual.slice(start, start + 4))}, expected=${formatByteVector(expected.slice(start, start + 4))}`;
         list.appendChild(item);
       }
+    }
+
+    function renderElementwiseResults(inputA, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const problem = getCurrentProblem();
+      const expected = buildElementwiseExpected(problem.kind, inputA);
+      const allMatch = output.length === expected.length;
+      let matchCount = 0;
+      if (allMatch) {
+        for (let i = 0; i < output.length; i += 1) {
+          if (Math.abs(output[i] - expected[i]) <= 1e-3) {
+            matchCount += 1;
+          }
+        }
+      }
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch && matchCount === output.length ? "good" : "warn"}`;
+      status.textContent = allMatch && matchCount === output.length ? "Accepted" : "Wrong Answer";
+
+      const count = document.createElement("span");
+      count.className = "pill";
+      count.textContent = `Elements: ${inputA.length}`;
+
+      const matchBadge = document.createElement("span");
+      matchBadge.className = "pill";
+      matchBadge.textContent = `Matched: ${matchCount}/${output.length}`;
+
+      summary.appendChild(status);
+      summary.appendChild(count);
+      summary.appendChild(matchBadge);
+
+      vector.textContent = `[${output.slice(0, 10).map((v) => formatNumber(v)).join(", ")}${output.length > 10 ? ", ..." : ""}]`;
+
+      const item = document.createElement("li");
+      item.className = "result-item";
+      item.innerHTML = `<strong>Element-wise Output</strong>input=${formatVector(inputA.slice(0, 5))}, actual=${formatVector(output.slice(0, 5))}, expected=${formatVector(expected.slice(0, 5))}`;
+      list.appendChild(item);
+    }
+
+    function renderDotProductResults(inputA, inputB, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildDotProductExpected(inputA, inputB);
+      const actual = output[0];
+      const allMatch = output.length === 1 && Math.abs(actual - expected) <= 1e-3;
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const count = document.createElement("span");
+      count.className = "pill";
+      count.textContent = `Elements: ${inputA.length}`;
+
+      const expectedBadge = document.createElement("span");
+      expectedBadge.className = "pill";
+      expectedBadge.textContent = `Expected: ${formatNumber(expected)}`;
+
+      summary.appendChild(status);
+      summary.appendChild(count);
+      summary.appendChild(expectedBadge);
+
+      vector.textContent = `dot_product = ${formatNumber(actual)}`;
+
+      const item = document.createElement("li");
+      item.className = "result-item";
+      item.innerHTML = `<strong>Dot Product</strong>actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`;
+      list.appendChild(item);
+    }
+
+    function renderMatrixCopyResults(inputA, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const allMatch = output.length === inputA.length;
+      let matchCount = 0;
+      if (allMatch) {
+        for (let i = 0; i < output.length; i += 1) {
+          if (Math.abs(output[i] - inputA[i]) <= 1e-3) {
+            matchCount += 1;
+          }
+        }
+      }
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch && matchCount === output.length ? "good" : "warn"}`;
+      status.textContent = allMatch && matchCount === output.length ? "Accepted" : "Wrong Answer";
+
+      const count = document.createElement("span");
+      count.className = "pill";
+      count.textContent = `Elements: ${inputA.length}`;
+
+      const matchBadge = document.createElement("span");
+      matchBadge.className = "pill";
+      matchBadge.textContent = `Matched: ${matchCount}/${output.length}`;
+
+      summary.appendChild(status);
+      summary.appendChild(count);
+      summary.appendChild(matchBadge);
+
+      vector.textContent = `[${output.slice(0, 10).map((v) => formatNumber(v)).join(", ")}${output.length > 10 ? ", ..." : ""}]`;
+
+      const item = document.createElement("li");
+      item.className = "result-item";
+      item.innerHTML = `<strong>Matrix Copy</strong>input=${formatVector(inputA.slice(0, 5))}, output=${formatVector(output.slice(0, 5))}`;
+      list.appendChild(item);
+    }
+
+    function renderPrefixSumResults(inputA, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildPrefixSumExpected(inputA);
+      const allMatch = output.length === expected.length;
+      let matchCount = 0;
+      if (allMatch) {
+        for (let i = 0; i < output.length; i += 1) {
+          if (Math.abs(output[i] - expected[i]) <= 1e-3) {
+            matchCount += 1;
+          }
+        }
+      }
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch && matchCount === output.length ? "good" : "warn"}`;
+      status.textContent = allMatch && matchCount === output.length ? "Accepted" : "Wrong Answer";
+
+      const count = document.createElement("span");
+      count.className = "pill";
+      count.textContent = `Elements: ${inputA.length}`;
+
+      const matchBadge = document.createElement("span");
+      matchBadge.className = "pill";
+      matchBadge.textContent = `Matched: ${matchCount}/${output.length}`;
+
+      summary.appendChild(status);
+      summary.appendChild(count);
+      summary.appendChild(matchBadge);
+
+      vector.textContent = `[${output.slice(0, 10).map((v) => formatNumber(v)).join(", ")}${output.length > 10 ? ", ..." : ""}]`;
+
+      const item = document.createElement("li");
+      item.className = "result-item";
+      item.innerHTML = `<strong>Prefix Sum</strong>input=${formatVector(inputA.slice(0, 5))}, actual=${formatVector(output.slice(0, 5))}, expected=${formatVector(expected.slice(0, 5))}`;
+      list.appendChild(item);
+    }
+
+    function renderReverseArrayResults(inputA, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = [...inputA].reverse();
+      const allMatch = output.length === expected.length;
+      let matchCount = 0;
+      if (allMatch) {
+        for (let i = 0; i < output.length; i += 1) {
+          if (Math.abs(output[i] - expected[i]) <= 1e-3) {
+            matchCount += 1;
+          }
+        }
+      }
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch && matchCount === output.length ? "good" : "warn"}`;
+      status.textContent = allMatch && matchCount === output.length ? "Accepted" : "Wrong Answer";
+
+      const count = document.createElement("span");
+      count.className = "pill";
+      count.textContent = `Elements: ${inputA.length}`;
+
+      const matchBadge = document.createElement("span");
+      matchBadge.className = "pill";
+      matchBadge.textContent = `Matched: ${matchCount}/${output.length}`;
+
+      summary.appendChild(status);
+      summary.appendChild(count);
+      summary.appendChild(matchBadge);
+
+      vector.textContent = `[${output.slice(0, 10).map((v) => formatNumber(v)).join(", ")}${output.length > 10 ? ", ..." : ""}]`;
+
+      const item = document.createElement("li");
+      item.className = "result-item";
+      item.innerHTML = `<strong>Reverse Array</strong>input=${formatVector(inputA.slice(0, 5))}, output=${formatVector(output.slice(0, 5))}, expected=${formatVector(expected.slice(0, 5))}`;
+      list.appendChild(item);
     }
 
     function ensureModuleWorkspace(module) {
@@ -4987,6 +5334,237 @@ extern "C" __global__ void solve(const int* input,
       }
     }
 
+    function runElementwise() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA === null || inputA.length === 0) {
+        pushLog("Input array must contain at least one float.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputABytes = inputABuffer.byteLength;
+      const inputAPtr = window.Module._malloc(inputABytes);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_elementwise",
+          "number",
+          ["string", "number", "number"],
+          [kernelName, inputAPtr, inputA.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderElementwiseResults(inputA, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runDotProduct() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+      if (inputA === null || inputB === null) {
+        pushLog("Both input arrays must contain at least one float.", "stderr");
+        return;
+      }
+
+      if (inputA.length !== inputB.length) {
+        pushLog("Input A and Input B must have the same length.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_dot_product",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderDotProductResults(inputA, inputB, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+      }
+    }
+
+    function runMatrixCopy() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA === null || inputA.length === 0) {
+        pushLog("Input array must contain at least one float.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_matrix_copy",
+          "number",
+          ["string", "number", "number"],
+          [kernelName, inputAPtr, inputA.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderMatrixCopyResults(inputA, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runPrefixSum() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA === null || inputA.length === 0) {
+        pushLog("Input array must contain at least one float.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_prefix_sum",
+          "number",
+          ["string", "number", "number"],
+          [kernelName, inputAPtr, inputA.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderPrefixSumResults(inputA, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runReverseArray() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA === null || inputA.length === 0) {
+        pushLog("Input array must contain at least one float.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_reverse_array",
+          "number",
+          ["string", "number", "number"],
+          [kernelName, inputAPtr, inputA.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderReverseArrayResults(inputA, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
     function runSelectedProblem() {
       const problem = getCurrentProblem();
       if (!problem) {
@@ -5050,6 +5628,34 @@ extern "C" __global__ void solve(const int* input,
 
       if (problem.kind === "histogramming") {
         runHistogramming();
+        return;
+      }
+
+      if (problem.kind === "relu" || problem.kind === "leaky-relu" ||
+          problem.kind === "silu" || problem.kind === "swish" ||
+          problem.kind === "gelu" || problem.kind === "sigmoid" ||
+          problem.kind === "stream-compaction") {
+        runElementwise();
+        return;
+      }
+
+      if (problem.kind === "dot-product") {
+        runDotProduct();
+        return;
+      }
+
+      if (problem.kind === "matrix-copy") {
+        runMatrixCopy();
+        return;
+      }
+
+      if (problem.kind === "prefix-sum") {
+        runPrefixSum();
+        return;
+      }
+
+      if (problem.kind === "reverse-array") {
+        runReverseArray();
         return;
       }
 

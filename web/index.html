@@ -1910,6 +1910,49 @@ extern "C" __global__ void solve(const int* input,
           }
         ]
       },
+      15: {
+        kind: "sorting",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with one in-place float pointer plus one 32-bit N scalar. The final array must be sorted in ascending order in the original buffer.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that sorts the input buffer in-place. For browser compatibility, keep the full algorithm inside solve.",
+        testcaseHint: "Paste a comma-separated float array. The browser judge derives N from the input length.",
+        testcaseHelp: "Input data must contain at least one float. The browser judge compares the final in-place buffer against a CPU ascending sort.",
+        resultTitle: "Sorted Output",
+        resultSubtitle: "The final result must be written back into the input array in ascending order.",
+        signatureHint: `extern "C" __global__ void solve(float* data, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(float* data, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < N; i = i + 1) {
+            int best = i;
+            for (int j = i + 1; j < N; j = j + 1) {
+                // TODO: update best when data[j] should come before data[best].
+            }
+
+            if (best != i) {
+                float temp = data[i];
+                data[i] = data[best];
+                data[best] = temp;
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [5.0, 2.0, 8.0, 1.0, 9.0, 4.0],
+            expected: [1.0, 2.0, 4.0, 5.0, 8.0, 9.0]
+          },
+          {
+            label: "Example 2",
+            inputA: [3.5, -1.0, 3.5, 2.25],
+            expected: [-1.0, 2.25, 3.5, 3.5]
+          }
+        ]
+      },
       16: {
         kind: "prefix-sum",
         supportsRun: true,
@@ -2048,6 +2091,165 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
           }
         ]
       },
+      27: {
+        kind: "mse",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with predictions, targets, and mse pointers plus a 32-bit N scalar. The final scalar must be written into mse[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full mean squared error directly in solve and stores it in mse[0].",
+        testcaseHint: "Paste two comma-separated float arrays for predictions and targets. The browser judge derives N from the input length.",
+        testcaseHelp: "Predictions and targets must have the same non-zero length. The browser judge compares mse[0] against a CPU mean squared error reference.",
+        resultTitle: "MSE Output",
+        resultSubtitle: "The final scalar must be stored in mse[0].",
+        signatureHint: `extern "C" __global__ void solve(const float* predictions, const float* targets, float* mse, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* predictions,
+                                 const float* targets,
+                                 float* mse,
+                                 int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        float sum = 0.0f;
+        for (int i = 0; i < N; i = i + 1) {
+            float diff = predictions[i] - targets[i];
+            // TODO: accumulate diff * diff into sum.
+        }
+        mse[0] = sum / (float)N;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 2.0, 3.0, 4.0],
+            inputB: [1.5, 2.5, 3.5, 4.5],
+            expected: 0.25
+          },
+          {
+            label: "Example 2",
+            inputA: [10.0, 20.0, 30.0],
+            inputB: [12.0, 18.0, 33.0],
+            expected: 5.666667
+          }
+        ]
+      },
+      28: {
+        kind: "gaussian-blur",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, kernel, and output pointers plus 32-bit input_rows, input_cols, kernel_rows, and kernel_cols scalars. The output must have the same shape as the input and use zero padding beyond the image boundary.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full zero-padded blur directly in solve.",
+        testcaseHint: "Paste a row-major float image and a row-major float blur kernel, then provide input_rows, input_cols, kernel_rows, and kernel_cols.",
+        testcaseHelp: "Input length must equal input_rows x input_cols, and kernel length must equal kernel_rows x kernel_cols. The browser judge compares the output buffer against a CPU same-shape zero-padded convolution reference.",
+        resultTitle: "Gaussian Blur Output",
+        resultSubtitle: "The final blurred image must be stored in the output array with the same shape as the input image.",
+        signatureHint: `extern "C" __global__ void solve(const float* input,
+                                 const float* kernel,
+                                 float* output,
+                                 int input_rows,
+                                 int input_cols,
+                                 int kernel_rows,
+                                 int kernel_cols) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input,
+                                 const float* kernel,
+                                 float* output,
+                                 int input_rows,
+                                 int input_cols,
+                                 int kernel_rows,
+                                 int kernel_cols) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int row_center = kernel_rows / 2;
+        int col_center = kernel_cols / 2;
+
+        for (int row = 0; row < input_rows; row = row + 1) {
+            for (int col = 0; col < input_cols; col = col + 1) {
+                float sum = 0.0f;
+                for (int kr = 0; kr < kernel_rows; kr = kr + 1) {
+                    for (int kc = 0; kc < kernel_cols; kc = kc + 1) {
+                        int input_row = row + kr - row_center;
+                        int input_col = col + kc - col_center;
+                        if (input_row >= 0 && input_row < input_rows && input_col >= 0 && input_col < input_cols) {
+                            // TODO: accumulate input[input_row * input_cols + input_col] * kernel[kr * kernel_cols + kc].
+                        }
+                    }
+                }
+                output[row * input_cols + col] = sum;
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputRows: 3,
+            inputCols: 3,
+            kernelRows: 3,
+            kernelCols: 3,
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            inputB: [0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625],
+            expected: [1.3125, 2.25, 2.0625, 3.25, 5.0, 4.25, 3.5625, 5.25, 4.3125]
+          },
+          {
+            label: "Example 2",
+            inputRows: 2,
+            inputCols: 2,
+            kernelRows: 3,
+            kernelCols: 3,
+            inputA: [10.0, 20.0, 30.0, 40.0],
+            inputB: [0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625],
+            expected: [11.25, 13.125, 15.0, 16.875]
+          }
+        ]
+      },
+      29: {
+        kind: "top-k-selection",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input and output pointers plus 32-bit N and k scalars. The final output array must contain the k largest values in descending order.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full top-k output directly in solve.",
+        testcaseHint: "Paste one float array and provide k. The browser judge derives N from the input length.",
+        testcaseHelp: "Input must contain at least one float, and k must be in [1, N]. The browser judge compares the output buffer against a CPU top-k reference.",
+        resultTitle: "Top-K Output",
+        resultSubtitle: "The final output array must contain the k largest values in descending order.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N, int k) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N, int k) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < k; i = i + 1) {
+            output[i] = input[i];
+        }
+
+        for (int i = 0; i < k; i = i + 1) {
+            for (int j = i + 1; j < k; j = j + 1) {
+                // TODO: keep output[0..k-1] sorted in descending order.
+            }
+        }
+
+        for (int i = k; i < N; i = i + 1) {
+            // TODO: insert input[i] into the descending top-k buffer when appropriate.
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 5.0, 3.0, 2.0, 4.0],
+            k: 3,
+            expected: [5.0, 4.0, 3.0]
+          },
+          {
+            label: "Example 2",
+            inputA: [7.2, -1.0, 3.3, 8.8, 2.2],
+            k: 2,
+            expected: [8.8, 7.2]
+          }
+        ]
+      },
       31: {
         kind: "matrix-copy",
         supportsRun: true,
@@ -2072,6 +2274,361 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             label: "Example 1",
             inputA: [1.0, 2.0, 3.0, 4.0],
             expected: [1.0, 2.0, 3.0, 4.0]
+          }
+        ]
+      },
+      36: {
+        kind: "radix-sort",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with integer input and output pointers plus one 32-bit N scalar. The final output array must contain the input values in ascending order.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the sorted integer array into output.",
+        testcaseHint: "Paste a comma-separated int array. The browser judge derives N from the input length.",
+        testcaseHelp: "Input must contain at least one integer. The browser judge compares the output buffer against a CPU ascending integer sort.",
+        resultTitle: "Radix Sort Output",
+        resultSubtitle: "The final sorted integer array must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const int* input, int* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const int* input, int* output, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < N; i = i + 1) {
+            output[i] = input[i];
+        }
+
+        for (int i = 0; i < N; i = i + 1) {
+            for (int j = i + 1; j < N; j = j + 1) {
+                // TODO: keep output sorted in ascending order.
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [5, 2, 8, 1, 9, 4],
+            expected: [1, 2, 4, 5, 8, 9]
+          },
+          {
+            label: "Example 2",
+            inputA: [3, -1, 3, 2],
+            expected: [-1, 2, 3, 3]
+          }
+        ]
+      },
+      37: {
+        kind: "matrix-power",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input and output pointers plus 32-bit N and P scalars. The input is treated as an N x N row-major matrix and the output must contain input^P.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full matrix power directly in solve.",
+        testcaseHint: "Paste a row-major float matrix, then provide matrix size N and exponent P.",
+        testcaseHelp: "Input length must equal N x N, and P must be a positive integer. The browser judge compares the full output matrix against a CPU repeated-multiplication reference.",
+        resultTitle: "Matrix Power Output",
+        resultSubtitle: "The final matrix power must be stored in the output array.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N, int P) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int N, int P) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int row = 0; row < N; row = row + 1) {
+            for (int col = 0; col < N; col = col + 1) {
+                output[row * N + col] = (row == col) ? 1.0f : 0.0f;
+            }
+        }
+
+        for (int step = 0; step < P; step = step + 1) {
+            // TODO: multiply the current output matrix by input and keep the updated N x N result.
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rows: 2,
+            cols: 2,
+            power: 2,
+            inputA: [1.0, 2.0, 3.0, 4.0],
+            expected: [7.0, 10.0, 15.0, 22.0]
+          },
+          {
+            label: "Example 2",
+            rows: 2,
+            cols: 2,
+            power: 3,
+            inputA: [2.0, 1.0, 0.0, 2.0],
+            expected: [8.0, 12.0, 0.0, 8.0]
+          }
+        ]
+      },
+      43: {
+        kind: "count-array",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with integer input and output pointers plus 32-bit N and K scalars. The final count must be stored in output[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that counts matches of K directly in solve.",
+        testcaseHint: "Paste one comma-separated int array and provide target K. The browser judge derives N from the input length.",
+        testcaseHelp: "Input must contain at least one integer. The browser judge compares output[0] against a CPU count of values equal to K.",
+        resultTitle: "Count Output",
+        resultSubtitle: "The final count must be stored in output[0].",
+        signatureHint: `extern "C" __global__ void solve(const int* input, int* output, int N, int K) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const int* input, int* output, int N, int K) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int count = 0;
+        for (int i = 0; i < N; i = i + 1) {
+            // TODO: increment count when input[i] == K.
+        }
+        output[0] = count;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1, 2, 3, 4, 1],
+            target: 1,
+            expected: 2
+          },
+          {
+            label: "Example 2",
+            inputA: [5, 10, 5, 2],
+            target: 11,
+            expected: 0
+          }
+        ]
+      },
+      44: {
+        kind: "count-array-2d",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with integer input and output pointers plus 32-bit N, M, and K scalars. The input is treated as an N x M row-major matrix, and the final count must be stored in output[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that scans the full flattened matrix and counts entries equal to K.",
+        testcaseHint: "Paste a row-major int matrix, then provide rows N, cols M, and target K.",
+        testcaseHelp: "Input length must equal N x M. The browser judge compares output[0] against a CPU count of entries equal to K.",
+        resultTitle: "Count Output",
+        resultSubtitle: "The final count must be stored in output[0].",
+        signatureHint: `extern "C" __global__ void solve(const int* input, int* output, int N, int M, int K) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const int* input, int* output, int N, int M, int K) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int count = 0;
+        int total = N * M;
+        for (int i = 0; i < total; i = i + 1) {
+            // TODO: increment count when input[i] == K.
+        }
+        output[0] = count;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rows: 2,
+            cols: 3,
+            inputA: [1, 2, 3, 4, 5, 1],
+            target: 1,
+            expected: 2
+          },
+          {
+            label: "Example 2",
+            rows: 2,
+            cols: 2,
+            inputA: [5, 10, 5, 2],
+            target: 1,
+            expected: 0
+          }
+        ]
+      },
+      45: {
+        kind: "count-array-3d",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with integer input and output pointers plus 32-bit N, M, K, and P scalars. The input is treated as an N x M x K row-major volume, and the final count must be stored in output[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that scans the flattened volume and counts entries equal to P.",
+        testcaseHint: "Paste a flat int volume, then provide dimensions N, M, K, and target P.",
+        testcaseHelp: "Input length must equal N x M x K. The browser judge compares output[0] against a CPU count of entries equal to P.",
+        resultTitle: "Count Output",
+        resultSubtitle: "The final count must be stored in output[0].",
+        signatureHint: `extern "C" __global__ void solve(const int* input, int* output, int N, int M, int K, int P) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const int* input, int* output, int N, int M, int K, int P) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int count = 0;
+        int total = N * M * K;
+        for (int i = 0; i < total; i = i + 1) {
+            // TODO: increment count when input[i] == P.
+        }
+        output[0] = count;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            depth: 2,
+            rows: 2,
+            cols: 3,
+            inputA: [1, 2, 3, 4, 5, 1, 1, 1, 1, 2, 2, 2],
+            target: 1,
+            expected: 5
+          },
+          {
+            label: "Example 2",
+            depth: 1,
+            rows: 3,
+            cols: 2,
+            inputA: [5, 10, 5, 2, 2, 2],
+            target: 1,
+            expected: 0
+          }
+        ]
+      },
+      47: {
+        kind: "subarray-sum",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with integer input and output pointers plus 32-bit N, S, and E scalars. The final inclusive-range sum must be stored in output[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that sums input[S..E] directly in solve.",
+        testcaseHint: "Paste a comma-separated int array, then provide inclusive start S and end E.",
+        testcaseHelp: "Input must contain at least one integer, and S/E must satisfy 0 <= S <= E < N. The browser judge compares output[0] against a CPU inclusive-range sum.",
+        resultTitle: "Subarray Sum Output",
+        resultSubtitle: "The final sum must be stored in output[0].",
+        signatureHint: `extern "C" __global__ void solve(const int* input, int* output, int N, int S, int E) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const int* input, int* output, int N, int S, int E) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int sum = 0;
+        for (int i = S; i <= E; i = i + 1) {
+            // TODO: accumulate input[i] into sum.
+        }
+        output[0] = sum;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1, 2, 1, 3, 4],
+            start: 1,
+            end: 3,
+            expected: 6
+          },
+          {
+            label: "Example 2",
+            inputA: [1, 2, 3, 4],
+            start: 0,
+            end: 3,
+            expected: 10
+          }
+        ]
+      },
+      48: {
+        kind: "subarray-sum-2d",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with integer input and output pointers plus 32-bit N, M, S_ROW, E_ROW, S_COL, and E_COL scalars. The input is treated as an N x M row-major matrix, and the final inclusive submatrix sum must be stored in output[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that sums the requested inclusive row-major submatrix directly in solve.",
+        testcaseHint: "Paste a row-major int matrix, then provide N, M, S_ROW, E_ROW, S_COL, and E_COL.",
+        testcaseHelp: "Input length must equal N x M, and all range indices must be valid inclusive bounds. The browser judge compares output[0] against a CPU submatrix sum.",
+        resultTitle: "2D Subarray Sum Output",
+        resultSubtitle: "The final submatrix sum must be stored in output[0].",
+        signatureHint: `extern "C" __global__ void solve(const int* input, int* output, int N, int M, int S_ROW, int E_ROW, int S_COL, int E_COL) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const int* input,
+                                 int* output,
+                                 int N,
+                                 int M,
+                                 int S_ROW,
+                                 int E_ROW,
+                                 int S_COL,
+                                 int E_COL) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int sum = 0;
+        for (int row = S_ROW; row <= E_ROW; row = row + 1) {
+            for (int col = S_COL; col <= E_COL; col = col + 1) {
+                // TODO: accumulate input[row * M + col] into sum.
+            }
+        }
+        output[0] = sum;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rows: 2,
+            cols: 3,
+            inputA: [1, 2, 3, 4, 5, 1],
+            startRow: 0,
+            endRow: 1,
+            startCol: 1,
+            endCol: 2,
+            expected: 11
+          },
+          {
+            label: "Example 2",
+            rows: 2,
+            cols: 2,
+            inputA: [5, 10, 5, 2],
+            startRow: 0,
+            endRow: 0,
+            startCol: 1,
+            endCol: 1,
+            expected: 10
+          }
+        ]
+      },
+      51: {
+        kind: "max-subarray-sum",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with integer input and output pointers plus 32-bit N and window_size scalars. The final maximum fixed-window sum must be stored in output[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the maximum contiguous subarray sum of exact length window_size.",
+        testcaseHint: "Paste a comma-separated int array and provide window_size.",
+        testcaseHelp: "Input must contain at least one integer, and window_size must be in [1, N]. The browser judge compares output[0] against a CPU fixed-window maximum sum.",
+        resultTitle: "Max Window Sum Output",
+        resultSubtitle: "The final maximum fixed-window sum must be stored in output[0].",
+        signatureHint: `extern "C" __global__ void solve(const int* input, int* output, int N, int window_size) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const int* input, int* output, int N, int window_size) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int best = 0;
+        int current = 0;
+        for (int i = 0; i < window_size; i = i + 1) {
+            current += input[i];
+        }
+        best = current;
+
+        for (int i = window_size; i < N; i = i + 1) {
+            current += input[i] - input[i - window_size];
+            // TODO: update best when current is larger.
+        }
+
+        output[0] = best;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1, 2, 4, 2, 3],
+            windowSize: 2,
+            expected: 6
+          },
+          {
+            label: "Example 2",
+            inputA: [-1, -4, -2, 1],
+            windowSize: 3,
+            expected: -5
           }
         ]
       },
@@ -2193,6 +2750,232 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
           }
         ]
       },
+      63: {
+        kind: "interleave-arrays",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with A, B, and output pointers plus one 32-bit N scalar. The final output must be [A[0], B[0], A[1], B[1], ...].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the full interleaved output directly in solve.",
+        testcaseHint: "Paste two comma-separated float arrays with the same length. The browser judge derives N from the input length.",
+        testcaseHelp: "Input A and Input B must both be non-empty and have the same length. The browser judge compares the full output array against a CPU interleave reference.",
+        resultTitle: "Interleaved Output",
+        resultSubtitle: "The final result must be stored in the output array with alternating values from A and B.",
+        signatureHint: `extern "C" __global__ void solve(const float* A, const float* B, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* A, const float* B, float* output, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < N; i = i + 1) {
+            // TODO: write A[i] to output[2 * i] and B[i] to output[2 * i + 1].
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 2.0, 3.0],
+            inputB: [4.0, 5.0, 6.0],
+            expected: [1.0, 4.0, 2.0, 5.0, 3.0, 6.0]
+          },
+          {
+            label: "Example 2",
+            inputA: [10.0, 20.0],
+            inputB: [30.0, 40.0],
+            expected: [10.0, 30.0, 20.0, 40.0]
+          }
+        ]
+      },
+      66: {
+        kind: "rgb-to-grayscale",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input and output pointers plus 32-bit width and height scalars. The input contains width x height x 3 RGB float values and the output must contain width x height grayscale values.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that converts the full RGB image to grayscale directly in solve.",
+        testcaseHint: "Paste a flat RGB float array, then provide width and height.",
+        testcaseHelp: "Input length must equal width x height x 3. The browser judge compares each grayscale output value against the CPU formula 0.299 * R + 0.587 * G + 0.114 * B.",
+        resultTitle: "Grayscale Output",
+        resultSubtitle: "The final grayscale image must be stored in the output array.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int width, int height) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int width, int height) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int totalPixels = width * height;
+        for (int i = 0; i < totalPixels; i = i + 1) {
+            float r = input[i * 3];
+            float g = input[i * 3 + 1];
+            float b = input[i * 3 + 2];
+            // TODO: write 0.299f * r + 0.587f * g + 0.114f * b into output[i].
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            width: 2,
+            height: 2,
+            inputA: [255.0, 0.0, 0.0, 0.0, 255.0, 0.0, 0.0, 0.0, 255.0, 128.0, 128.0, 128.0],
+            expected: [76.245, 149.685, 29.07, 128.0]
+          },
+          {
+            label: "Example 2",
+            width: 1,
+            height: 1,
+            inputA: [100.0, 150.0, 200.0],
+            expected: [140.75]
+          }
+        ]
+      },
+      69: {
+        kind: "jacobi-2d",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input and output pointers plus 32-bit rows and cols scalars. Boundary cells must be copied unchanged and interior cells must be updated with the 5-point Jacobi stencil.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full output grid directly in solve from the read-only input grid.",
+        testcaseHint: "Paste a row-major float grid, then provide rows and cols.",
+        testcaseHelp: "Input length must equal rows x cols. The browser judge compares the full output grid against a CPU 5-point Jacobi reference.",
+        resultTitle: "Jacobi Output",
+        resultSubtitle: "The final result must be written to the output grid.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int rows, int cols) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input, float* output, int rows, int cols) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int row = 0; row < rows; row = row + 1) {
+            for (int col = 0; col < cols; col = col + 1) {
+                if (row == 0 || row == rows - 1 || col == 0 || col == cols - 1) {
+                    output[row * cols + col] = input[row * cols + col];
+                } else {
+                    // TODO: average the four cardinal neighbors from input into output[row * cols + col].
+                }
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rows: 4,
+            cols: 4,
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0],
+            expected: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]
+          },
+          {
+            label: "Example 2",
+            rows: 3,
+            cols: 3,
+            inputA: [1.0, 2.0, 3.0, 4.0, 100.0, 6.0, 7.0, 8.0, 9.0],
+            expected: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
+          }
+        ]
+      },
+      70: {
+        kind: "merge-sorted",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with A, B, and C pointers plus 32-bit M and N scalars. The final output C must contain all values from A and B in non-decreasing order.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that merges the two sorted arrays directly in solve.",
+        testcaseHint: "Paste two sorted float arrays A and B. The browser judge derives M and N from the input lengths.",
+        testcaseHelp: "Input A and Input B must both be non-empty and already sorted in non-decreasing order. The browser judge compares the output array against a CPU merge reference.",
+        resultTitle: "Merged Output",
+        resultSubtitle: "The final merged array must be stored in C.",
+        signatureHint: `extern "C" __global__ void solve(const float* A, const float* B, float* C, int M, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* A, const float* B, float* C, int M, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int i = 0;
+        int j = 0;
+        int out = 0;
+
+        while (i < M && j < N) {
+            // TODO: write the smaller next value into C[out].
+        }
+
+        while (i < M) {
+            C[out] = A[i];
+            i = i + 1;
+            out = out + 1;
+        }
+
+        while (j < N) {
+            C[out] = B[j];
+            j = j + 1;
+            out = out + 1;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 3.0, 5.0, 7.0],
+            inputB: [2.0, 4.0, 6.0, 8.0],
+            expected: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+          },
+          {
+            label: "Example 2",
+            inputA: [1.0, 2.0, 3.0],
+            inputB: [4.0],
+            expected: [1.0, 2.0, 3.0, 4.0]
+          }
+        ]
+      },
+      71: {
+        kind: "parallel-merge",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects the same PTX entry signature as Merge Sorted Arrays: A, B, and C pointers plus 32-bit M and N scalars. The final merged output must be stored in C.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that merges the two sorted arrays correctly. The browser judge validates correctness, not the specific parallel strategy.",
+        testcaseHint: "Paste two sorted float arrays A and B. The browser judge derives M and N from the input lengths.",
+        testcaseHelp: "Input A and Input B must both be non-empty and already sorted in non-decreasing order. The browser judge compares the output array against a CPU merge reference.",
+        resultTitle: "Merged Output",
+        resultSubtitle: "The final merged array must be stored in C.",
+        signatureHint: `extern "C" __global__ void solve(const float* A, const float* B, float* C, int M, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* A, const float* B, float* C, int M, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int i = 0;
+        int j = 0;
+        int out = 0;
+
+        while (i < M && j < N) {
+            // TODO: write the smaller next value into C[out].
+        }
+
+        while (i < M) {
+            C[out] = A[i];
+            i = i + 1;
+            out = out + 1;
+        }
+
+        while (j < N) {
+            C[out] = B[j];
+            j = j + 1;
+            out = out + 1;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 3.0, 5.0, 7.0],
+            inputB: [2.0, 4.0, 6.0, 8.0],
+            expected: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+          },
+          {
+            label: "Example 2",
+            inputA: [-1.0, 1.0, 3.0],
+            inputB: [2.0],
+            expected: [-1.0, 1.0, 2.0, 3.0]
+          }
+        ]
+      },
       72: {
         kind: "stream-compaction",
         supportsRun: true,
@@ -2219,6 +3002,55 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             label: "Example 1",
             inputA: [0.0, 3.0, 0.0, 4.0, 5.0, 0.0],
             expected: [3.0, 4.0, 5.0]
+          }
+        ]
+      },
+      73: {
+        kind: "all-pairs-shortest-paths",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with dist and output pointers plus one 32-bit N scalar. The input is treated as an N x N row-major distance matrix, and the output must contain the shortest-path closure after considering all intermediate nodes.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full Floyd-Warshall-style closure directly in solve.",
+        testcaseHint: "Paste a row-major float distance matrix and provide N. Use a very large finite value such as 1000000000 for missing edges.",
+        testcaseHelp: "Input length must equal N x N. The browser judge compares the full output matrix against a CPU all-pairs shortest-path reference using the same finite distance values.",
+        resultTitle: "Shortest Paths Output",
+        resultSubtitle: "The final all-pairs distance matrix must be stored in the output array.",
+        signatureHint: `extern "C" __global__ void solve(const float* dist, float* output, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* dist, float* output, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < N * N; i = i + 1) {
+            output[i] = dist[i];
+        }
+
+        for (int k = 0; k < N; k = k + 1) {
+            for (int i = 0; i < N; i = i + 1) {
+                for (int j = 0; j < N; j = j + 1) {
+                    float through_k = output[i * N + k] + output[k * N + j];
+                    if (through_k < output[i * N + j]) {
+                        output[i * N + j] = through_k;
+                    }
+                }
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rows: 3,
+            cols: 3,
+            inputA: [0.0, 3.0, 10.0, 1000000000.0, 0.0, 1.0, 1000000000.0, 1000000000.0, 0.0],
+            expected: [0.0, 3.0, 4.0, 1000000000.0, 0.0, 1.0, 1000000000.0, 1000000000.0, 0.0]
+          },
+          {
+            label: "Example 2",
+            rows: 3,
+            cols: 3,
+            inputA: [0.0, 5.0, 9.0, 1000000000.0, 0.0, 2.0, 4.0, 1000000000.0, 0.0],
+            expected: [0.0, 5.0, 7.0, 6.0, 0.0, 2.0, 4.0, 9.0, 0.0]
           }
         ]
       }
@@ -2805,8 +3637,17 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       return Number.isInteger(value) && value > 0 ? value : null;
     }
 
+    function parseInteger(text) {
+      const value = Number.parseInt(String(text ?? "").trim(), 10);
+      return Number.isInteger(value) ? value : null;
+    }
+
     function buildVectorAddExpected(inputA, inputB) {
       return inputA.map((value, index) => value + inputB[index]);
+    }
+
+    function buildSortingExpected(inputA) {
+      return [...inputA].sort((a, b) => a - b);
     }
 
     function buildMatrixMultiplyExpected(inputA, inputB, rowsM, sharedN, colsK) {
@@ -2857,6 +3698,32 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             }
           }
           output[row * outputCols + col] = sum;
+        }
+      }
+
+      return output;
+    }
+
+    function buildGaussianBlurExpected(input, kernel, inputRows, inputCols, kernelRows, kernelCols) {
+      const output = new Array(inputRows * inputCols).fill(0.0);
+      const rowCenter = Math.floor(kernelRows / 2);
+      const colCenter = Math.floor(kernelCols / 2);
+
+      for (let row = 0; row < inputRows; row += 1) {
+        for (let col = 0; col < inputCols; col += 1) {
+          let sum = 0.0;
+          for (let kr = 0; kr < kernelRows; kr += 1) {
+            for (let kc = 0; kc < kernelCols; kc += 1) {
+              const inputRow = row + kr - rowCenter;
+              const inputCol = col + kc - colCenter;
+              if (inputRow >= 0 && inputRow < inputRows && inputCol >= 0 && inputCol < inputCols) {
+                const inputIndex = inputRow * inputCols + inputCol;
+                const kernelIndex = kr * kernelCols + kc;
+                sum += input[inputIndex] * kernel[kernelIndex];
+              }
+            }
+          }
+          output[row * inputCols + col] = sum;
         }
       }
 
@@ -2914,12 +3781,73 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       return result;
     }
 
+    function buildMatrixPowerExpected(inputA, matrixSize, power) {
+      function multiplySquare(left, right) {
+        const result = new Array(matrixSize * matrixSize).fill(0.0);
+        for (let row = 0; row < matrixSize; row += 1) {
+          for (let col = 0; col < matrixSize; col += 1) {
+            let sum = 0.0;
+            for (let k = 0; k < matrixSize; k += 1) {
+              sum += left[row * matrixSize + k] * right[k * matrixSize + col];
+            }
+            result[row * matrixSize + col] = sum;
+          }
+        }
+        return result;
+      }
+
+      let result = new Array(matrixSize * matrixSize).fill(0.0);
+      for (let i = 0; i < matrixSize; i += 1) {
+        result[i * matrixSize + i] = 1.0;
+      }
+
+      let base = [...inputA];
+      let exponent = power;
+      while (exponent > 0) {
+        if (exponent % 2 === 1) {
+          result = multiplySquare(result, base);
+        }
+        base = multiplySquare(base, base);
+        exponent = Math.floor(exponent / 2);
+      }
+
+      return result;
+    }
+
+    function buildAllPairsShortestPathsExpected(inputA, matrixSize) {
+      const dist = [...inputA];
+      for (let via = 0; via < matrixSize; via += 1) {
+        for (let row = 0; row < matrixSize; row += 1) {
+          for (let col = 0; col < matrixSize; col += 1) {
+            const candidate = dist[row * matrixSize + via] + dist[via * matrixSize + col];
+            if (candidate < dist[row * matrixSize + col]) {
+              dist[row * matrixSize + col] = candidate;
+            }
+          }
+        }
+      }
+      return dist;
+    }
+
     function buildReductionExpected(inputA) {
       let sum = 0.0;
       for (const value of inputA) {
         sum += value;
       }
       return sum;
+    }
+
+    function buildMseExpected(inputA, inputB) {
+      let sum = 0.0;
+      for (let i = 0; i < inputA.length; i += 1) {
+        const diff = inputA[i] - inputB[i];
+        sum += diff * diff;
+      }
+      return sum / inputA.length;
+    }
+
+    function buildTopKExpected(inputA, k) {
+      return [...inputA].sort((a, b) => b - a).slice(0, k);
     }
 
     function buildHistogramExpected(inputA, numBins) {
@@ -2964,6 +3892,115 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         sum += inputA[i] * inputB[i];
       }
       return sum;
+    }
+
+    function buildCountArrayExpected(inputA, target) {
+      let count = 0;
+      for (const value of inputA) {
+        if (value === target) {
+          count += 1;
+        }
+      }
+      return count;
+    }
+
+    function buildSubarraySumExpected(inputA, start, end) {
+      let sum = 0;
+      for (let i = start; i <= end; i += 1) {
+        sum += inputA[i];
+      }
+      return sum;
+    }
+
+    function buildSubarraySum2DExpected(inputA, rows, cols, startRow, endRow, startCol, endCol) {
+      let sum = 0;
+      for (let row = startRow; row <= endRow; row += 1) {
+        for (let col = startCol; col <= endCol; col += 1) {
+          sum += inputA[row * cols + col];
+        }
+      }
+      return sum;
+    }
+
+    function buildMaxSubarraySumExpected(inputA, windowSize) {
+      let current = 0;
+      for (let i = 0; i < windowSize; i += 1) {
+        current += inputA[i];
+      }
+
+      let best = current;
+      for (let i = windowSize; i < inputA.length; i += 1) {
+        current += inputA[i] - inputA[i - windowSize];
+        if (current > best) {
+          best = current;
+        }
+      }
+
+      return best;
+    }
+
+    function buildInterleaveExpected(inputA, inputB) {
+      const output = new Array(inputA.length * 2);
+      for (let i = 0; i < inputA.length; i += 1) {
+        output[i * 2] = inputA[i];
+        output[i * 2 + 1] = inputB[i];
+      }
+      return output;
+    }
+
+    function buildGrayscaleExpected(inputA, width, height) {
+      const totalPixels = width * height;
+      const output = new Array(totalPixels);
+      for (let i = 0; i < totalPixels; i += 1) {
+        const base = i * 3;
+        output[i] = 0.299 * inputA[base] + 0.587 * inputA[base + 1] + 0.114 * inputA[base + 2];
+      }
+      return output;
+    }
+
+    function buildJacobi2DExpected(inputA, rows, cols) {
+      const output = new Array(inputA.length).fill(0);
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const index = row * cols + col;
+          if (row === 0 || row === rows - 1 || col === 0 || col === cols - 1) {
+            output[index] = inputA[index];
+          } else {
+            output[index] =
+              0.25 * (
+                inputA[(row - 1) * cols + col] +
+                inputA[(row + 1) * cols + col] +
+                inputA[row * cols + col - 1] +
+                inputA[row * cols + col + 1]
+              );
+          }
+        }
+      }
+      return output;
+    }
+
+    function buildMergeSortedExpected(inputA, inputB) {
+      const output = [];
+      let i = 0;
+      let j = 0;
+      while (i < inputA.length && j < inputB.length) {
+        if (inputA[i] <= inputB[j]) {
+          output.push(inputA[i]);
+          i += 1;
+        } else {
+          output.push(inputB[j]);
+          j += 1;
+        }
+      }
+      while (i < inputA.length) {
+        output.push(inputA[i]);
+        i += 1;
+      }
+      while (j < inputB.length) {
+        output.push(inputB[j]);
+        j += 1;
+      }
+      return output;
     }
 
     function buildPrefixSumExpected(inputA) {
@@ -3082,6 +4119,15 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
     function arraysAlmostEqual(actual, expected, tolerance = 1e-4) {
       return actual.length === expected.length &&
         actual.every((value, index) => Math.abs(value - expected[index]) <= tolerance);
+    }
+
+    function isNonDecreasing(values) {
+      for (let i = 1; i < values.length; i += 1) {
+        if (values[i] < values[i - 1]) {
+          return false;
+        }
+      }
+      return true;
     }
 
     function createBadge(label, className = "accent") {
@@ -3254,6 +4300,13 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         document.getElementById("matrix-l").value = String(example.kernelCols);
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "gaussian-blur") {
+        document.getElementById("matrix-m").value = String(example.inputRows);
+        document.getElementById("matrix-n").value = String(example.inputCols);
+        document.getElementById("matrix-k").value = String(example.kernelRows);
+        document.getElementById("matrix-l").value = String(example.kernelCols);
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       } else if (problem.kind === "matrix-addition") {
         document.getElementById("matrix-m").value = String(example.matrixSize);
         document.getElementById("matrix-n").value = "";
@@ -3275,10 +4328,87 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         document.getElementById("matrix-l").value = "";
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "matrix-power") {
+        document.getElementById("matrix-m").value = String(example.rows);
+        document.getElementById("matrix-n").value = String(example.power);
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "all-pairs-shortest-paths") {
+        document.getElementById("matrix-m").value = String(example.rows);
+        document.getElementById("matrix-n").value = "";
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       } else if (problem.kind === "histogramming") {
         document.getElementById("matrix-m").value = "";
         document.getElementById("matrix-n").value = "";
         document.getElementById("matrix-k").value = String(example.numBins);
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "top-k-selection") {
+        document.getElementById("matrix-m").value = "";
+        document.getElementById("matrix-n").value = "";
+        document.getElementById("matrix-k").value = String(example.k);
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "count-array") {
+        document.getElementById("matrix-m").value = "";
+        document.getElementById("matrix-n").value = "";
+        document.getElementById("matrix-k").value = String(example.target);
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "count-array-2d") {
+        document.getElementById("matrix-m").value = String(example.rows);
+        document.getElementById("matrix-n").value = String(example.cols);
+        document.getElementById("matrix-k").value = String(example.target);
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "count-array-3d") {
+        document.getElementById("matrix-m").value = String(example.depth);
+        document.getElementById("matrix-n").value = String(example.rows);
+        document.getElementById("matrix-k").value = String(example.cols);
+        document.getElementById("matrix-l").value = String(example.target);
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "subarray-sum") {
+        document.getElementById("matrix-m").value = String(example.start);
+        document.getElementById("matrix-n").value = String(example.end);
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "subarray-sum-2d") {
+        document.getElementById("matrix-m").value = String(example.rows);
+        document.getElementById("matrix-n").value = String(example.cols);
+        document.getElementById("matrix-k").value = String(example.startRow);
+        document.getElementById("matrix-l").value = String(example.endRow);
+        document.getElementById("matrix-p").value = String(example.startCol);
+        document.getElementById("matrix-q").value = String(example.endCol);
+      } else if (problem.kind === "max-subarray-sum") {
+        document.getElementById("matrix-m").value = String(example.windowSize);
+        document.getElementById("matrix-n").value = "";
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "rgb-to-grayscale") {
+        document.getElementById("matrix-m").value = String(example.width);
+        document.getElementById("matrix-n").value = String(example.height);
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "jacobi-2d") {
+        document.getElementById("matrix-m").value = String(example.rows);
+        document.getElementById("matrix-n").value = String(example.cols);
+        document.getElementById("matrix-k").value = "";
         document.getElementById("matrix-l").value = "";
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
@@ -3447,6 +4577,12 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             <span class="vector-line">        kernel (${example.kernelRows} x ${example.kernelCols}) = ${formatMatrixInline(example.inputB, example.kernelRows, example.kernelCols)}</span>
             <span class="vector-line">Output: output (${outputRows} x ${outputCols}) = ${formatMatrixInline(example.expected, outputRows, outputCols)}</span>
           `;
+        } else if (problem.kind === "gaussian-blur") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input (${example.inputRows} x ${example.inputCols}) = ${formatMatrixInline(example.inputA, example.inputRows, example.inputCols)}</span>
+            <span class="vector-line">        kernel (${example.kernelRows} x ${example.kernelCols}) = ${formatMatrixInline(example.inputB, example.kernelRows, example.kernelCols)}</span>
+            <span class="vector-line">Output: output (${example.inputRows} x ${example.inputCols}) = ${formatMatrixInline(example.expected, example.inputRows, example.inputCols)}</span>
+          `;
         } else if (problem.kind === "convolution-1d") {
           bodyHtml = `
             <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
@@ -3485,6 +4621,87 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             <span class="vector-line">Input:  x = ${formatVector(example.inputA)}</span>
             <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
           `;
+        } else if (problem.kind === "sorting") {
+          bodyHtml = `
+            <span class="vector-line">Input:  data = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">Output: data = ${formatVector(example.expected)}</span>
+          `;
+        } else if (problem.kind === "radix-sort") {
+          bodyHtml = `
+            <span class="vector-line">Input:  data = [${example.inputA.join(", ")}]</span>
+            <span class="vector-line">Output: data = [${example.expected.join(", ")}]</span>
+          `;
+        } else if (problem.kind === "mse") {
+          bodyHtml = `
+            <span class="vector-line">Input:  predictions = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">        targets = ${formatVector(example.inputB)}</span>
+            <span class="vector-line">Output: mse[0] = ${formatNumber(example.expected)}</span>
+          `;
+        } else if (problem.kind === "top-k-selection") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">        k = ${example.k}</span>
+            <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
+          `;
+        } else if (problem.kind === "count-array") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input = [${example.inputA.join(", ")}]</span>
+            <span class="vector-line">        K = ${example.target}</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
+          `;
+        } else if (problem.kind === "count-array-2d") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
+            <span class="vector-line">        K = ${example.target}</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
+          `;
+        } else if (problem.kind === "count-array-3d") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input (${example.depth} x ${example.rows} x ${example.cols}) = ${formatTensorInline(example.inputA, example.depth, example.rows, example.cols)}</span>
+            <span class="vector-line">        P = ${example.target}</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
+          `;
+        } else if (problem.kind === "subarray-sum") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input = [${example.inputA.join(", ")}]</span>
+            <span class="vector-line">        S = ${example.start}, E = ${example.end}</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
+          `;
+        } else if (problem.kind === "subarray-sum-2d") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
+            <span class="vector-line">        rows = [${example.startRow}, ${example.endRow}], cols = [${example.startCol}, ${example.endCol}]</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
+          `;
+        } else if (problem.kind === "max-subarray-sum") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input = [${example.inputA.join(", ")}]</span>
+            <span class="vector-line">        window_size = ${example.windowSize}</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
+          `;
+        } else if (problem.kind === "interleave-arrays") {
+          bodyHtml = `
+            <span class="vector-line">Input:  A = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
+            <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
+          `;
+        } else if (problem.kind === "rgb-to-grayscale") {
+          bodyHtml = `
+            <span class="vector-line">Input:  RGB = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">        width = ${example.width}, height = ${example.height}</span>
+            <span class="vector-line">Output: gray = ${formatVector(example.expected)}</span>
+          `;
+        } else if (problem.kind === "jacobi-2d") {
+          bodyHtml = `
+            <span class="vector-line">Input:  grid (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
+            <span class="vector-line">Output: output (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.expected, example.rows, example.cols)}</span>
+          `;
+        } else if (problem.kind === "merge-sorted" || problem.kind === "parallel-merge") {
+          bodyHtml = `
+            <span class="vector-line">Input:  A = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
+            <span class="vector-line">Output: C = ${formatVector(example.expected)}</span>
+          `;
         } else if (problem.kind === "dot-product") {
           bodyHtml = `
             <span class="vector-line">Input:  A = ${formatVector(example.inputA)}</span>
@@ -3500,6 +4717,17 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
           bodyHtml = `
             <span class="vector-line">Input:  A (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
             <span class="vector-line">Output: A^T (${example.cols} x ${example.rows}) = ${formatMatrixInline(example.expected, example.cols, example.rows)}</span>
+          `;
+        } else if (problem.kind === "matrix-power") {
+          bodyHtml = `
+            <span class="vector-line">Input:  A (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
+            <span class="vector-line">        P = ${example.power}</span>
+            <span class="vector-line">Output: A^P (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.expected, example.rows, example.cols)}</span>
+          `;
+        } else if (problem.kind === "all-pairs-shortest-paths") {
+          bodyHtml = `
+            <span class="vector-line">Input:  dist (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
+            <span class="vector-line">Output: output (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.expected, example.rows, example.cols)}</span>
           `;
         } else if (problem.kind === "histogramming") {
           bodyHtml = `
@@ -3590,32 +4818,104 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         problem.kind === "vector-add" ||
         problem.kind === "convolution-3d" ||
         problem.kind === "convolution-2d" ||
+        problem.kind === "gaussian-blur" ||
         problem.kind === "convolution-1d" ||
         problem.kind === "matrix-addition" ||
         problem.kind === "matrix-multiplication" ||
         problem.kind === "multi-head-attention" ||
         problem.kind === "softmax-attention" ||
-        problem.kind === "dot-product";
+        problem.kind === "dot-product" ||
+        problem.kind === "mse" ||
+        problem.kind === "interleave-arrays" ||
+        problem.kind === "merge-sorted" ||
+        problem.kind === "parallel-merge";
       const isSoftmaxAttention = problem.kind === "softmax-attention";
       const isMultiHeadAttention = problem.kind === "multi-head-attention";
       const usesThirdInput = isSoftmaxAttention || isMultiHeadAttention;
       const isColorInversion = problem.kind === "color-inversion";
+      const isGrayscale = problem.kind === "rgb-to-grayscale";
       const isConvolution3D = problem.kind === "convolution-3d";
       const isConvolution2D = problem.kind === "convolution-2d";
+      const isGaussianBlur = problem.kind === "gaussian-blur";
       const isMatrixAddition = problem.kind === "matrix-addition";
       const isMatrixMultiply = problem.kind === "matrix-multiplication";
       const isTranspose = problem.kind === "matrix-transpose";
+      const isMatrixPower = problem.kind === "matrix-power";
+      const isAllPairsShortestPaths = problem.kind === "all-pairs-shortest-paths";
       const isHistogramming = problem.kind === "histogramming";
+      const isSorting = problem.kind === "sorting" || problem.kind === "radix-sort";
+      const isMse = problem.kind === "mse";
+      const isTopK = problem.kind === "top-k-selection";
+      const isCountArray = problem.kind === "count-array";
+      const isCountArray2D = problem.kind === "count-array-2d";
+      const isCountArray3D = problem.kind === "count-array-3d";
+      const isSubarraySum = problem.kind === "subarray-sum";
+      const isSubarraySum2D = problem.kind === "subarray-sum-2d";
+      const isMaxSubarray = problem.kind === "max-subarray-sum";
+      const isInterleave = problem.kind === "interleave-arrays";
+      const isMergeSorted = problem.kind === "merge-sorted" || problem.kind === "parallel-merge";
+      const isJacobi2D = problem.kind === "jacobi-2d";
       const isAttention = isSoftmaxAttention || isMultiHeadAttention;
-      const usesMatrixDims =
+      const showMatrixM =
         isConvolution3D ||
         isConvolution2D ||
+        isGaussianBlur ||
         isMatrixAddition ||
         isMatrixMultiply ||
         isTranspose ||
+        isMatrixPower ||
+        isAllPairsShortestPaths ||
         isAttention ||
         isColorInversion ||
-        isHistogramming;
+        isGrayscale ||
+        isCountArray2D ||
+        isCountArray3D ||
+        isSubarraySum ||
+        isSubarraySum2D ||
+        isMaxSubarray ||
+        isJacobi2D;
+      const showMatrixN =
+        isConvolution3D ||
+        isConvolution2D ||
+        isGaussianBlur ||
+        isMatrixMultiply ||
+        isTranspose ||
+        isMatrixPower ||
+        isAttention ||
+        isColorInversion ||
+        isGrayscale ||
+        isCountArray2D ||
+        isCountArray3D ||
+        isSubarraySum ||
+        isSubarraySum2D ||
+        isJacobi2D;
+      const showMatrixK =
+        isConvolution3D ||
+        isConvolution2D ||
+        isGaussianBlur ||
+        isMatrixMultiply ||
+        isAttention ||
+        isHistogramming ||
+        isTopK ||
+        isCountArray ||
+        isCountArray2D ||
+        isCountArray3D ||
+        isSubarraySum2D;
+      const showMatrixL =
+        isConvolution3D ||
+        isConvolution2D ||
+        isGaussianBlur ||
+        isCountArray3D ||
+        isSubarraySum2D;
+      const showMatrixP = isConvolution3D || isSubarraySum2D;
+      const showMatrixQ = isConvolution3D || isSubarraySum2D;
+      const usesMatrixDims =
+        showMatrixM ||
+        showMatrixN ||
+        showMatrixK ||
+        showMatrixL ||
+        showMatrixP ||
+        showMatrixQ;
       const canRun = problem.supportsRun;
       const canCompile = problem.supportsCudaCompile;
       const matrixDims = document.getElementById("matrix-dims");
@@ -3652,16 +4952,26 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       document.getElementById("input-a-label").textContent =
         problem.kind === "vector-add"
           ? "Vector A"
+          : isSorting
+            ? "Input Data"
           : isConvolution3D
             ? "Input Volume (flat)"
+          : isGaussianBlur
+            ? "Input Matrix (row-major)"
           : problem.kind === "convolution-2d"
             ? "Input Matrix (row-major)"
           : problem.kind === "convolution-1d"
             ? "Input Array"
+          : isMatrixPower || isAllPairsShortestPaths
+            ? "Input Matrix (row-major)"
           : isColorInversion
             ? "Image RGBA (flat)"
+          : isGrayscale
+            ? "RGB Image (flat)"
           : (problem.kind === "reduction" || problem.kind === "softmax")
             ? "Input Array"
+          : isMse
+            ? "Predictions"
           : isAttention
             ? "Matrix Q (row-major)"
           : isMatrixAddition
@@ -3670,14 +4980,20 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             ? "Matrix A (row-major)"
             : isTranspose
               ? "Input Matrix A (row-major)"
+            : (isCountArray || isCountArray2D || isCountArray3D || isSubarraySum || isSubarraySum2D || isMaxSubarray)
+              ? "Integer Input"
             : isHistogramming
               ? "Integer Array"
             : "Input A";
       document.getElementById("input-b-label").textContent =
         problem.kind === "vector-add"
           ? "Vector B"
+          : isMse
+            ? "Targets"
           : isConvolution3D
             ? "Kernel Volume (flat)"
+          : isGaussianBlur
+            ? "Kernel (row-major)"
           : problem.kind === "convolution-2d"
             ? "Kernel (row-major)"
           : problem.kind === "convolution-1d"
@@ -3688,6 +5004,8 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             ? "Matrix B (row-major)"
           : isMatrixMultiply
             ? "Matrix B (row-major)"
+          : isInterleave || isMergeSorted
+            ? "Input B"
           : problem.kind === "dot-product"
             ? "Vector B"
             : isTranspose
@@ -3698,46 +5016,92 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
 
       matrixMLabel.textContent =
         isColorInversion ? "Width"
+        : isGrayscale ? "Width"
         : isConvolution3D ? "Input Depth"
+        : isGaussianBlur ? "Input Rows"
         : isConvolution2D ? "Input Rows"
+        : isMatrixPower ? "Matrix N"
+        : isAllPairsShortestPaths ? "Matrix N"
         : isTranspose ? "Input Rows"
+        : isTopK ? "Unused"
+        : isCountArray2D ? "Rows N"
+        : isCountArray3D ? "Depth N"
+        : isSubarraySum ? "Start S"
+        : isSubarraySum2D ? "Rows N"
+        : isMaxSubarray ? "Window Size"
+        : isJacobi2D ? "Rows"
         : isMatrixAddition ? "Matrix N"
         : isMultiHeadAttention ? "Sequence N"
         : "Rows M";
       matrixNLabel.textContent =
         isColorInversion ? "Height"
+        : isGrayscale ? "Height"
         : isConvolution3D ? "Input Rows"
+        : isGaussianBlur ? "Input Cols"
         : isConvolution2D ? "Input Cols"
+        : isMatrixPower ? "Power P"
         : isTranspose ? "Input Cols"
+        : isCountArray2D ? "Cols M"
+        : isCountArray3D ? "Rows M"
+        : isSubarraySum ? "End E"
+        : isSubarraySum2D ? "Cols M"
+        : isJacobi2D ? "Cols"
         : isSoftmaxAttention ? "Keys N"
         : isMultiHeadAttention ? "Model d"
         : "Shared N";
       matrixKLabel.textContent =
         isConvolution3D ? "Input Cols"
+        : isGaussianBlur ? "Kernel Rows"
         : isConvolution2D ? "Kernel Rows"
         : isSoftmaxAttention ? "Feature d"
         : isMultiHeadAttention ? "Heads h"
+        : isTopK ? "Top k"
+        : isCountArray ? "Target K"
+        : isCountArray2D ? "Target K"
+        : isCountArray3D ? "Cols K"
+        : isSubarraySum2D ? "Start Row"
         : isHistogramming ? "num_bins"
         : "Cols K";
       matrixLLabel.textContent =
         isConvolution3D ? "Kernel Depth"
+        : isGaussianBlur ? "Kernel Cols"
         : isConvolution2D ? "Kernel Cols"
+        : isCountArray3D ? "Target P"
+        : isSubarraySum2D ? "End Row"
         : "Extra Dim";
-      matrixPLabel.textContent = isConvolution3D ? "Kernel Rows" : "Extra Dim";
-      matrixQLabel.textContent = isConvolution3D ? "Kernel Cols" : "Extra Dim";
+      matrixPLabel.textContent =
+        isConvolution3D ? "Kernel Rows"
+        : isSubarraySum2D ? "Start Col"
+        : "Extra Dim";
+      matrixQLabel.textContent =
+        isConvolution3D ? "Kernel Cols"
+        : isSubarraySum2D ? "End Col"
+        : "Extra Dim";
 
       inputA.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "1.0, 2.0, 3.0"
+          : isSorting
+            ? "5.0, 2.0, 8.0, 1.0"
           : isConvolution3D
             ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
+          : isGaussianBlur
+            ? "1.0, 2.0, 3.0, 4.0"
           : problem.kind === "convolution-2d"
             ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
           : problem.kind === "convolution-1d"
             ? "1.0, 2.0, 3.0, 4.0, 5.0"
+          : isMatrixPower
+            ? "1.0, 2.0, 3.0, 4.0"
+          : isAllPairsShortestPaths
+            ? "0.0, 5.0, 9.0, 1000000000.0"
           : isColorInversion
             ? "255, 0, 128, 255, 0, 255, 0, 255"
+          : isGrayscale
+            ? "255.0, 0.0, 0.0, 0.0, 255.0, 0.0"
           : (problem.kind === "reduction" || problem.kind === "softmax")
+            ? "1.0, 2.0, 3.0, 4.0"
+          : isMse
             ? "1.0, 2.0, 3.0, 4.0"
           : isAttention
             ? "1.0, 0.0, 0.0, 0.0"
@@ -3747,6 +5111,8 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             ? "1.0, 2.0, 3.0, 4.0"
             : isTranspose
               ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
+            : (isCountArray || isCountArray2D || isCountArray3D || isSubarraySum || isSubarraySum2D || isMaxSubarray)
+              ? "1, 2, 3, 4, 1"
             : isHistogramming
               ? "0, 1, 2, 1, 0"
               : "Input A")
@@ -3754,8 +5120,12 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       inputB.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "4.0, 5.0, 6.0"
+          : isMse
+            ? "1.5, 2.5, 3.5, 4.5"
           : isConvolution3D
             ? "1.0, 0.0, 0.0, 1.0, 1.0, 1.0"
+          : isGaussianBlur
+            ? "0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625"
           : problem.kind === "convolution-2d"
             ? "0.0, 1.0, 1.0, 0.0"
           : problem.kind === "convolution-1d"
@@ -3766,6 +5136,8 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
               ? "5.0, 6.0, 7.0, 8.0"
             : isMatrixMultiply
               ? "5.0, 6.0, 7.0, 8.0"
+              : isInterleave || isMergeSorted
+                ? "4.0, 5.0, 6.0"
               : "")
         : "Browser judge is not available for this challenge.";
       inputC.placeholder = canRun
@@ -3778,18 +5150,18 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       inputBField.hidden = !usesSecondInput;
       inputCField.hidden = !usesThirdInput;
       matrixDims.hidden = !usesMatrixDims;
-      matrixMField.hidden = !usesMatrixDims;
-      matrixNField.hidden = !(isConvolution3D || isConvolution2D || isMatrixMultiply || isTranspose || isAttention || isColorInversion);
-      matrixKField.hidden = !(isConvolution3D || isConvolution2D || isMatrixMultiply || isAttention);
-      matrixLField.hidden = !(isConvolution3D || isConvolution2D);
-      matrixPField.hidden = !isConvolution3D;
-      matrixQField.hidden = !isConvolution3D;
-      matrixM.disabled = !canRun || !usesMatrixDims;
-      matrixN.disabled = !canRun || matrixNField.hidden;
-      matrixK.disabled = !canRun || matrixKField.hidden;
-      matrixL.disabled = !canRun || matrixLField.hidden;
-      matrixP.disabled = !canRun || matrixPField.hidden;
-      matrixQ.disabled = !canRun || matrixQField.hidden;
+      matrixMField.hidden = !showMatrixM;
+      matrixNField.hidden = !showMatrixN;
+      matrixKField.hidden = !showMatrixK;
+      matrixLField.hidden = !showMatrixL;
+      matrixPField.hidden = !showMatrixP;
+      matrixQField.hidden = !showMatrixQ;
+      matrixM.disabled = !canRun || !showMatrixM;
+      matrixN.disabled = !canRun || !showMatrixN;
+      matrixK.disabled = !canRun || !showMatrixK;
+      matrixL.disabled = !canRun || !showMatrixL;
+      matrixP.disabled = !canRun || !showMatrixP;
+      matrixQ.disabled = !canRun || !showMatrixQ;
 
       fileInput.disabled = !canCompile;
       setCudaSourceEditorDisabled(!canCompile);
@@ -3930,7 +5302,19 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         vector.textContent = "A^T = [ waiting for a run ]";
       } else if (problem.kind === "color-inversion") {
         vector.textContent = "image = [ waiting for a run ]";
+      } else if (problem.kind === "sorting" || problem.kind === "radix-sort") {
+        vector.textContent = "data = [ waiting for a run ]";
+      } else if (problem.kind === "gaussian-blur") {
+        vector.textContent = "output = [ waiting for a run ]";
+      } else if (problem.kind === "rgb-to-grayscale") {
+        vector.textContent = "gray = [ waiting for a run ]";
+      } else if (problem.kind === "merge-sorted" || problem.kind === "parallel-merge") {
+        vector.textContent = "C = [ waiting for a run ]";
       } else if (problem.kind === "softmax-attention" || problem.kind === "multi-head-attention") {
+        vector.textContent = "output = [ waiting for a run ]";
+      } else if (problem.kind === "matrix-power" || problem.kind === "all-pairs-shortest-paths") {
+        vector.textContent = "output = [ waiting for a run ]";
+      } else if (problem.kind === "jacobi-2d") {
         vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "convolution-3d") {
         vector.textContent = "output = [ waiting for a run ]";
@@ -3940,7 +5324,17 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "softmax") {
         vector.textContent = "output = [ waiting for a run ]";
-      } else if (problem.kind === "reduction") {
+      } else if (
+        problem.kind === "reduction" ||
+        problem.kind === "dot-product" ||
+        problem.kind === "mse" ||
+        problem.kind === "count-array" ||
+        problem.kind === "count-array-2d" ||
+        problem.kind === "count-array-3d" ||
+        problem.kind === "subarray-sum" ||
+        problem.kind === "subarray-sum-2d" ||
+        problem.kind === "max-subarray-sum"
+      ) {
         vector.textContent = "output[0] = [ waiting for a run ]";
       } else {
         vector.textContent = "C = [ waiting for a run ]";
@@ -4128,6 +5522,44 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       const actualRows = buildMatrixRows(output, outputRows, outputCols);
       const expectedRows = buildMatrixRows(expected, outputRows, outputCols);
       for (let row = 0; row < outputRows; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderGaussianBlurResults(input, kernel, inputRows, inputCols, kernelRows, kernelCols, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildGaussianBlurExpected(input, kernel, inputRows, inputCols, kernelRows, kernelCols);
+      const allMatch = arraysAlmostEqual(output, expected, 1e-4);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${inputRows} x ${inputCols}`;
+
+      const reference = document.createElement("span");
+      reference.className = "pill";
+      reference.textContent = "Reference: CPU zero-padded blur";
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(reference);
+
+      vector.textContent = `output = ${formatMatrixMultiline(output, inputRows, inputCols)}`;
+
+      const actualRows = buildMatrixRows(output, inputRows, inputCols);
+      const expectedRows = buildMatrixRows(expected, inputRows, inputCols);
+      for (let row = 0; row < inputRows; row += 1) {
         const item = document.createElement("li");
         item.className = "result-item";
         item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
@@ -4544,6 +5976,307 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       item.className = "result-item";
       item.innerHTML = `<strong>Dot Product</strong>actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`;
       list.appendChild(item);
+    }
+
+    function renderScalarJudgeResults(actual, expected, label, detailHtml, pills = [], tolerance = 1e-4) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const allMatch = Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance;
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+      summary.appendChild(status);
+
+      for (const pillText of pills) {
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = pillText;
+        summary.appendChild(pill);
+      }
+
+      const expectedBadge = document.createElement("span");
+      expectedBadge.className = "pill";
+      expectedBadge.textContent = `Expected: ${formatNumber(expected)}`;
+      summary.appendChild(expectedBadge);
+
+      vector.textContent = `${label} = ${formatNumber(actual)}`;
+
+      const item = document.createElement("li");
+      item.className = "result-item";
+      item.innerHTML = detailHtml;
+      list.appendChild(item);
+    }
+
+    function renderSimpleVectorJudgeResults(output, expected, label, pills = [], tolerance = 1e-4) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const allMatch = arraysAlmostEqual(output, expected, tolerance);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+      summary.appendChild(status);
+
+      for (const pillText of pills) {
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = pillText;
+        summary.appendChild(pill);
+      }
+
+      const expectedBadge = document.createElement("span");
+      expectedBadge.className = "pill";
+      expectedBadge.textContent = `Expected ${label} = ${formatVector(expected)}`;
+      summary.appendChild(expectedBadge);
+
+      vector.textContent = `${label} = ${formatVector(output)}`;
+
+      const maxItems = Math.min(output.length, expected.length, 12);
+      for (let i = 0; i < maxItems; i += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>${label}[${i}] = ${formatNumber(output[i])}</strong>expected=${formatNumber(expected[i])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderSortingResults(inputA, output) {
+      const expected = buildSortingExpected(inputA);
+      renderSimpleVectorJudgeResults(output, expected, "data", [`Elements: ${inputA.length}`], 1e-4);
+    }
+
+    function renderMseResults(inputA, inputB, output) {
+      const expected = buildMseExpected(inputA, inputB);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "mse[0]",
+        `<strong>MSE</strong>actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Elements: ${inputA.length}`],
+        1e-3
+      );
+    }
+
+    function renderTopKResults(inputA, k, output) {
+      const expected = buildTopKExpected(inputA, k);
+      renderSimpleVectorJudgeResults(output, expected, "output", [`N: ${inputA.length}`, `k: ${k}`], 1e-4);
+    }
+
+    function renderCountArrayResults(inputA, target, output) {
+      const expected = buildCountArrayExpected(inputA, target);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "output[0]",
+        `<strong>Count</strong>target=${target}, actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Elements: ${inputA.length}`],
+        1e-3
+      );
+    }
+
+    function renderCountArray2DResults(inputA, rows, cols, target, output) {
+      const expected = buildCountArrayExpected(inputA, target);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "output[0]",
+        `<strong>2D Count</strong>shape=${rows} x ${cols}, target=${target}, actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Shape: ${rows} x ${cols}`],
+        1e-3
+      );
+    }
+
+    function renderCountArray3DResults(inputA, depth, rows, cols, target, output) {
+      const expected = buildCountArrayExpected(inputA, target);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "output[0]",
+        `<strong>3D Count</strong>shape=${depth} x ${rows} x ${cols}, target=${target}, actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Shape: ${depth} x ${rows} x ${cols}`],
+        1e-3
+      );
+    }
+
+    function renderSubarraySumResults(inputA, start, end, output) {
+      const expected = buildSubarraySumExpected(inputA, start, end);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "output[0]",
+        `<strong>Subarray Sum</strong>range=[${start}, ${end}], actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Range: ${start}..${end}`],
+        1e-3
+      );
+    }
+
+    function renderSubarraySum2DResults(inputA, rows, cols, startRow, endRow, startCol, endCol, output) {
+      const expected = buildSubarraySum2DExpected(inputA, rows, cols, startRow, endRow, startCol, endCol);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "output[0]",
+        `<strong>2D Subarray Sum</strong>rows=[${startRow}, ${endRow}], cols=[${startCol}, ${endCol}], actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Shape: ${rows} x ${cols}`],
+        1e-3
+      );
+    }
+
+    function renderMaxSubarraySumResults(inputA, windowSize, output) {
+      const expected = buildMaxSubarraySumExpected(inputA, windowSize);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "output[0]",
+        `<strong>Max Window Sum</strong>window_size=${windowSize}, actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Window: ${windowSize}`],
+        1e-3
+      );
+    }
+
+    function renderInterleaveResults(inputA, inputB, output) {
+      const expected = buildInterleaveExpected(inputA, inputB);
+      renderSimpleVectorJudgeResults(output, expected, "output", [`Pairs: ${inputA.length}`], 1e-4);
+    }
+
+    function renderGrayscaleResults(inputA, width, height, output) {
+      const expected = buildGrayscaleExpected(inputA, width, height);
+      renderSimpleVectorJudgeResults(output, expected, "gray", [`Shape: ${width} x ${height}`], 1e-3);
+    }
+
+    function renderJacobi2DResults(inputA, rows, cols, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildJacobi2DExpected(inputA, rows, cols);
+      const allMatch = arraysAlmostEqual(output, expected, 1e-4);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${rows} x ${cols}`;
+
+      const reference = document.createElement("span");
+      reference.className = "pill";
+      reference.textContent = "Reference: CPU Jacobi stencil";
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(reference);
+
+      vector.textContent = `output = ${formatMatrixMultiline(output, rows, cols)}`;
+
+      const actualRows = buildMatrixRows(output, rows, cols);
+      const expectedRows = buildMatrixRows(expected, rows, cols);
+      for (let row = 0; row < rows; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderMatrixPowerResults(inputA, matrixSize, power, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildMatrixPowerExpected(inputA, matrixSize, power);
+      const allMatch = arraysAlmostEqual(output, expected, 1e-4);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${matrixSize} x ${matrixSize}`;
+
+      const exponentBadge = document.createElement("span");
+      exponentBadge.className = "pill";
+      exponentBadge.textContent = `Power: ${power}`;
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(exponentBadge);
+
+      vector.textContent = `output = ${formatMatrixMultiline(output, matrixSize, matrixSize)}`;
+
+      const actualRows = buildMatrixRows(output, matrixSize, matrixSize);
+      const expectedRows = buildMatrixRows(expected, matrixSize, matrixSize);
+      for (let row = 0; row < matrixSize; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderAllPairsShortestPathsResults(inputA, matrixSize, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildAllPairsShortestPathsExpected(inputA, matrixSize);
+      const allMatch = arraysAlmostEqual(output, expected, 1e-4);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${matrixSize} x ${matrixSize}`;
+
+      const reference = document.createElement("span");
+      reference.className = "pill";
+      reference.textContent = "Reference: CPU Floyd-Warshall";
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(reference);
+
+      vector.textContent = `output = ${formatMatrixMultiline(output, matrixSize, matrixSize)}`;
+
+      const actualRows = buildMatrixRows(output, matrixSize, matrixSize);
+      const expectedRows = buildMatrixRows(expected, matrixSize, matrixSize);
+      for (let row = 0; row < matrixSize; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderMergeSortedResults(inputA, inputB, output) {
+      const expected = buildMergeSortedExpected(inputA, inputB);
+      renderSimpleVectorJudgeResults(output, expected, "C", [`M: ${inputA.length}`, `N: ${inputB.length}`], 1e-4);
     }
 
     function renderMatrixCopyResults(inputA, output) {
@@ -5232,6 +6965,71 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       }
     }
 
+    function runGaussianBlur() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputRows = parsePositiveInt(document.getElementById("matrix-m").value);
+      const inputCols = parsePositiveInt(document.getElementById("matrix-n").value);
+      const kernelRows = parsePositiveInt(document.getElementById("matrix-k").value);
+      const kernelCols = parsePositiveInt(document.getElementById("matrix-l").value);
+
+      if (inputRows === null || inputCols === null || kernelRows === null || kernelCols === null) {
+        pushLog("Input rows, input cols, kernel rows, and kernel cols must all be positive integers.", "stderr");
+        return;
+      }
+
+      const input = parseFloatList(document.getElementById("input-a").value);
+      const kernel = parseFloatList(document.getElementById("input-b").value);
+
+      if (input.length !== inputRows * inputCols) {
+        pushLog("Input matrix length does not match input_rows x input_cols.", "stderr");
+        return;
+      }
+
+      if (kernel.length !== kernelRows * kernelCols) {
+        pushLog("Kernel length does not match kernel_rows x kernel_cols.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputBuffer = new Float32Array(input);
+      const kernelBuffer = new Float32Array(kernel);
+      const inputPtr = window.Module._malloc(inputBuffer.byteLength);
+      const kernelPtr = window.Module._malloc(kernelBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputBuffer, inputPtr >> 2);
+        window.Module.HEAPF32.set(kernelBuffer, kernelPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_padded_convolution_2d",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputPtr, input.length, kernelPtr, kernel.length, inputRows, inputCols, kernelRows, kernelCols]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderGaussianBlurResults(input, kernel, inputRows, inputCols, kernelRows, kernelCols, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputPtr);
+        window.Module._free(kernelPtr);
+      }
+    }
+
     function runMatrixTranspose() {
       if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
         return;
@@ -5733,6 +7531,539 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
       }
     }
 
+    function runSorting() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length === 0) {
+        pushLog("Input array must contain at least one float.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_sorting",
+          "number",
+          ["string", "number", "number"],
+          [kernelName, inputAPtr, inputA.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderSortingResults(inputA, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runRadixSort() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseIntList(document.getElementById("input-a").value);
+      if (inputA === null || inputA.length === 0) {
+        pushLog("Input array must contain at least one integer.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Int32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAP32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_int_array_transform",
+          "number",
+          ["string", "number", "number"],
+          [kernelName, inputAPtr, inputA.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderSortingResults(inputA, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runMse() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+      if (inputA.length === 0 || inputB.length === 0) {
+        pushLog("Predictions and targets must both contain at least one float.", "stderr");
+        return;
+      }
+
+      if (inputA.length !== inputB.length) {
+        pushLog("Predictions and targets must have the same length.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_dot_product",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderMseResults(inputA, inputB, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+      }
+    }
+
+    function runTopK() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const k = parsePositiveInt(document.getElementById("matrix-k").value);
+      if (inputA.length === 0) {
+        pushLog("Input array must contain at least one float.", "stderr");
+        return;
+      }
+
+      if (k === null || k > inputA.length) {
+        pushLog("k must be a positive integer no larger than the input length.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_top_k",
+          "number",
+          ["string", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, k]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderTopKResults(inputA, k, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runIntScalarReduce() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const problem = getCurrentProblem();
+      const inputA = parseIntList(document.getElementById("input-a").value);
+      if (inputA === null || inputA.length === 0) {
+        pushLog("Input array must contain at least one integer.", "stderr");
+        return;
+      }
+
+      let scalars = null;
+      let render = null;
+
+      if (problem.kind === "count-array") {
+        const target = parseInteger(document.getElementById("matrix-k").value);
+        if (target === null) {
+          pushLog("Target K must be an integer.", "stderr");
+          return;
+        }
+        scalars = [inputA.length, target];
+        render = (output) => renderCountArrayResults(inputA, target, output);
+      } else if (problem.kind === "count-array-2d") {
+        const rows = parsePositiveInt(document.getElementById("matrix-m").value);
+        const cols = parsePositiveInt(document.getElementById("matrix-n").value);
+        const target = parseInteger(document.getElementById("matrix-k").value);
+        if (rows === null || cols === null || target === null) {
+          pushLog("Rows, cols, and target K must all be valid integers.", "stderr");
+          return;
+        }
+        if (inputA.length !== rows * cols) {
+          pushLog("Input length does not match rows x cols.", "stderr");
+          return;
+        }
+        scalars = [rows, cols, target];
+        render = (output) => renderCountArray2DResults(inputA, rows, cols, target, output);
+      } else if (problem.kind === "count-array-3d") {
+        const depth = parsePositiveInt(document.getElementById("matrix-m").value);
+        const rows = parsePositiveInt(document.getElementById("matrix-n").value);
+        const cols = parsePositiveInt(document.getElementById("matrix-k").value);
+        const target = parseInteger(document.getElementById("matrix-l").value);
+        if (depth === null || rows === null || cols === null || target === null) {
+          pushLog("Depth, rows, cols, and target P must all be valid integers.", "stderr");
+          return;
+        }
+        if (inputA.length !== depth * rows * cols) {
+          pushLog("Input length does not match depth x rows x cols.", "stderr");
+          return;
+        }
+        scalars = [depth, rows, cols, target];
+        render = (output) => renderCountArray3DResults(inputA, depth, rows, cols, target, output);
+      } else if (problem.kind === "subarray-sum") {
+        const start = parseInteger(document.getElementById("matrix-m").value);
+        const end = parseInteger(document.getElementById("matrix-n").value);
+        if (start === null || end === null || start < 0 || end < start || end >= inputA.length) {
+          pushLog("S and E must be valid inclusive indices with 0 <= S <= E < N.", "stderr");
+          return;
+        }
+        scalars = [inputA.length, start, end];
+        render = (output) => renderSubarraySumResults(inputA, start, end, output);
+      } else if (problem.kind === "subarray-sum-2d") {
+        const rows = parsePositiveInt(document.getElementById("matrix-m").value);
+        const cols = parsePositiveInt(document.getElementById("matrix-n").value);
+        const startRow = parseInteger(document.getElementById("matrix-k").value);
+        const endRow = parseInteger(document.getElementById("matrix-l").value);
+        const startCol = parseInteger(document.getElementById("matrix-p").value);
+        const endCol = parseInteger(document.getElementById("matrix-q").value);
+        if (
+          rows === null || cols === null ||
+          startRow === null || endRow === null ||
+          startCol === null || endCol === null
+        ) {
+          pushLog("Rows, cols, and all range indices must be valid integers.", "stderr");
+          return;
+        }
+        if (inputA.length !== rows * cols) {
+          pushLog("Input length does not match rows x cols.", "stderr");
+          return;
+        }
+        if (startRow < 0 || endRow < startRow || endRow >= rows || startCol < 0 || endCol < startCol || endCol >= cols) {
+          pushLog("Submatrix bounds must satisfy 0 <= start <= end within the matrix dimensions.", "stderr");
+          return;
+        }
+        scalars = [rows, cols, startRow, endRow, startCol, endCol];
+        render = (output) => renderSubarraySum2DResults(inputA, rows, cols, startRow, endRow, startCol, endCol, output);
+      } else if (problem.kind === "max-subarray-sum") {
+        const windowSize = parsePositiveInt(document.getElementById("matrix-m").value);
+        if (windowSize === null || windowSize > inputA.length) {
+          pushLog("window_size must be a positive integer no larger than the input length.", "stderr");
+          return;
+        }
+        scalars = [inputA.length, windowSize];
+        render = (output) => renderMaxSubarraySumResults(inputA, windowSize, output);
+      } else {
+        pushLog("This integer scalar reduction problem is not wired up in the browser judge yet.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Int32Array(inputA);
+      const scalarBuffer = new Int32Array(scalars);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const scalarPtr = window.Module._malloc(scalarBuffer.byteLength);
+
+      try {
+        window.Module.HEAP32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAP32.set(scalarBuffer, scalarPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_int_scalar_reduce",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, scalars.length, scalarPtr]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        render(output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(scalarPtr);
+      }
+    }
+
+    function runInterleave() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+      if (inputA.length === 0 || inputB.length === 0 || inputA.length !== inputB.length) {
+        pushLog("Input A and Input B must both be non-empty and have the same length.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_interleave",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderInterleaveResults(inputA, inputB, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+      }
+    }
+
+    function runGrayscale() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const width = parsePositiveInt(document.getElementById("matrix-m").value);
+      const height = parsePositiveInt(document.getElementById("matrix-n").value);
+      if (width === null || height === null) {
+        pushLog("Width and height must both be positive integers.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length !== width * height * 3) {
+        pushLog("RGB input length must equal width x height x 3.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_grayscale",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, width, height]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderGrayscaleResults(inputA, width, height, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runJacobi2D() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rows = parsePositiveInt(document.getElementById("matrix-m").value);
+      const cols = parsePositiveInt(document.getElementById("matrix-n").value);
+      if (rows === null || cols === null) {
+        pushLog("Rows and cols must both be positive integers.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length !== rows * cols) {
+        pushLog("Input length does not match rows x cols.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_jacobi_2d",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, rows, cols]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderJacobi2DResults(inputA, rows, cols, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runMergeSorted() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+      if (inputA.length === 0 || inputB.length === 0) {
+        pushLog("Input A and Input B must both contain at least one float.", "stderr");
+        return;
+      }
+
+      if (!isNonDecreasing(inputA) || !isNonDecreasing(inputB)) {
+        pushLog("Input A and Input B must already be sorted in non-decreasing order.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_merge_sorted",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderMergeSortedResults(inputA, inputB, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+      }
+    }
+
     function runMatrixCopy() {
       if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
         return;
@@ -5771,6 +8102,107 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         }
 
         renderMatrixCopyResults(inputA, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runMatrixPower() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const matrixSize = parsePositiveInt(document.getElementById("matrix-m").value);
+      const power = parsePositiveInt(document.getElementById("matrix-n").value);
+      if (matrixSize === null || power === null) {
+        pushLog("Matrix size N and power P must both be positive integers.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length !== matrixSize * matrixSize) {
+        pushLog("Input matrix length does not match N x N.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_matrix_power",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, matrixSize, power]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderMatrixPowerResults(inputA, matrixSize, power, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runAllPairsShortestPaths() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const matrixSize = parsePositiveInt(document.getElementById("matrix-m").value);
+      if (matrixSize === null) {
+        pushLog("Matrix size N must be a positive integer.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length !== matrixSize * matrixSize) {
+        pushLog("Input matrix length does not match N x N.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_square_matrix_transform",
+          "number",
+          ["string", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, matrixSize]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderAllPairsShortestPathsResults(inputA, matrixSize, output);
         pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
       } finally {
         window.Module._free(inputAPtr);
@@ -5886,6 +8318,11 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         return;
       }
 
+      if (problem.kind === "gaussian-blur") {
+        runGaussianBlur();
+        return;
+      }
+
       if (problem.kind === "convolution-1d") {
         runConvolution1D();
         return;
@@ -5903,6 +8340,11 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
 
       if (problem.kind === "matrix-transpose") {
         runMatrixTranspose();
+        return;
+      }
+
+      if (problem.kind === "matrix-power") {
+        runMatrixPower();
         return;
       }
 
@@ -5931,6 +8373,38 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         return;
       }
 
+      if (problem.kind === "sorting") {
+        runSorting();
+        return;
+      }
+
+      if (problem.kind === "radix-sort") {
+        runRadixSort();
+        return;
+      }
+
+      if (problem.kind === "mse") {
+        runMse();
+        return;
+      }
+
+      if (problem.kind === "top-k-selection") {
+        runTopK();
+        return;
+      }
+
+      if (
+        problem.kind === "count-array" ||
+        problem.kind === "count-array-2d" ||
+        problem.kind === "count-array-3d" ||
+        problem.kind === "subarray-sum" ||
+        problem.kind === "subarray-sum-2d" ||
+        problem.kind === "max-subarray-sum"
+      ) {
+        runIntScalarReduce();
+        return;
+      }
+
       if (problem.kind === "relu" || problem.kind === "leaky-relu" ||
           problem.kind === "silu" || problem.kind === "swish" ||
           problem.kind === "gelu" || problem.kind === "sigmoid" ||
@@ -5949,6 +8423,11 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
         return;
       }
 
+      if (problem.kind === "all-pairs-shortest-paths") {
+        runAllPairsShortestPaths();
+        return;
+      }
+
       if (problem.kind === "prefix-sum") {
         runPrefixSum();
         return;
@@ -5961,6 +8440,26 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
 
       if (problem.kind === "color-inversion") {
         runColorInversion();
+        return;
+      }
+
+      if (problem.kind === "interleave-arrays") {
+        runInterleave();
+        return;
+      }
+
+      if (problem.kind === "rgb-to-grayscale") {
+        runGrayscale();
+        return;
+      }
+
+      if (problem.kind === "jacobi-2d") {
+        runJacobi2D();
+        return;
+      }
+
+      if (problem.kind === "merge-sorted" || problem.kind === "parallel-merge") {
+        runMergeSorted();
         return;
       }
 

@@ -1047,6 +1047,16 @@
                   <label id="matrix-l-label" for="matrix-l">Extra Dim</label>
                   <input id="matrix-l" type="number" min="1" step="1" />
                 </div>
+
+                <div id="matrix-p-field" class="field" hidden>
+                  <label id="matrix-p-label" for="matrix-p">Extra Dim</label>
+                  <input id="matrix-p" type="number" min="1" step="1" />
+                </div>
+
+                <div id="matrix-q-field" class="field" hidden>
+                  <label id="matrix-q-label" for="matrix-q">Extra Dim</label>
+                  <input id="matrix-q" type="number" min="1" step="1" />
+                </div>
               </div>
 
               <div id="testcase-help" class="hint-box"></div>
@@ -1642,6 +1652,105 @@ extern "C" __global__ void solve(const float* input,
             expected: [2.0, 2.0, 4.0, 3.0, 6.0, 5.0, 2.0, 2.0]
           }
         ]
+      },
+      11: {
+        kind: "convolution-3d",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract:
+          "The browser judge expects a PTX entry kernel with input, kernel, and output pointers plus 32-bit input_depth, input_rows, input_cols, kernel_depth, kernel_rows, and kernel_cols scalars. For browser compatibility, compute the full valid 3D convolution output directly inside solve.",
+        submissionHint:
+          "The Starter Code tab shows the official LeetGPU CUDA starter. For the browser compiler, submit a single extern \"C\" __global__ solve kernel that computes the entire valid 3D convolution output directly in solve.",
+        testcaseHint:
+          "Paste flat float arrays for the input volume and kernel volume, then provide input_depth, input_rows, input_cols, kernel_depth, kernel_rows, and kernel_cols.",
+        testcaseHelp:
+          "Input length must equal input_depth x input_rows x input_cols, kernel length must equal kernel_depth x kernel_rows x kernel_cols, and the kernel dimensions must not exceed the input dimensions. Flatten each depth slice in row-major order, then concatenate slices by depth.",
+        resultTitle: "3D Convolution Output",
+        resultSubtitle:
+          "The final result must be stored in the output volume. The judge compares it to a CPU valid 3D convolution reference.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, const float* kernel, float* output, int input_depth, int input_rows, int input_cols, int kernel_depth, int kernel_rows, int kernel_cols) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input,
+                                 const float* kernel,
+                                 float* output,
+                                 int input_depth,
+                                 int input_rows,
+                                 int input_cols,
+                                 int kernel_depth,
+                                 int kernel_rows,
+                                 int kernel_cols) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int output_depth = input_depth - kernel_depth + 1;
+        int output_rows = input_rows - kernel_rows + 1;
+        int output_cols = input_cols - kernel_cols + 1;
+
+        for (int od = 0; od < output_depth; od = od + 1) {
+            for (int row = 0; row < output_rows; row = row + 1) {
+                for (int col = 0; col < output_cols; col = col + 1) {
+                    float sum = 0.0f;
+                    for (int kd = 0; kd < kernel_depth; kd = kd + 1) {
+                        for (int kr = 0; kr < kernel_rows; kr = kr + 1) {
+                            for (int kc = 0; kc < kernel_cols; kc = kc + 1) {
+                                int input_index =
+                                    ((od + kd) * input_rows + (row + kr)) * input_cols + (col + kc);
+                                int kernel_index =
+                                    (kd * kernel_rows + kr) * kernel_cols + kc;
+                                // TODO: accumulate input[input_index] * kernel[kernel_index].
+                            }
+                        }
+                    }
+                    int output_index = (od * output_rows + row) * output_cols + col;
+                    output[output_index] = sum;
+                }
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputDepth: 3,
+            inputRows: 3,
+            inputCols: 3,
+            kernelDepth: 2,
+            kernelRows: 3,
+            kernelCols: 3,
+            inputA: [
+              1.0, 2.0, 3.0,
+              4.0, 5.0, 6.0,
+              7.0, 8.0, 9.0,
+              10.0, 11.0, 12.0,
+              13.0, 14.0, 15.0,
+              16.0, 17.0, 18.0,
+              19.0, 20.0, 21.0,
+              22.0, 23.0, 24.0,
+              25.0, 26.0, 27.0
+            ],
+            inputB: [
+              1.0, 0.0, 0.0,
+              1.0, 1.0, 1.0,
+              0.0, 0.0, 0.0,
+              1.0, 1.0, 0.0,
+              1.0, 1.0, 0.0,
+              0.0, 0.0, 1.0
+            ],
+            expected: [82.0, 163.0]
+          },
+          {
+            label: "Example 2",
+            inputDepth: 2,
+            inputRows: 2,
+            inputCols: 2,
+            kernelDepth: 2,
+            kernelRows: 2,
+            kernelCols: 2,
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            inputB: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            expected: [36.0]
+          }
+        ]
       }
     };
 
@@ -2078,6 +2187,27 @@ extern "C" __global__ void solve(const float* input,
       return `[\n${lines.join("\n")}\n]`;
     }
 
+    function buildTensorSlices(values, depth, rows, cols) {
+      const slices = [];
+      const sliceSize = rows * cols;
+      for (let d = 0; d < depth; d += 1) {
+        const start = d * sliceSize;
+        slices.push(values.slice(start, start + sliceSize));
+      }
+      return slices;
+    }
+
+    function formatTensorInline(values, depth, rows, cols) {
+      const slices = buildTensorSlices(values, depth, rows, cols);
+      return `[${slices.map((slice, index) => `d=${index}: ${formatMatrixInline(slice, rows, cols)}`).join(", ")}]`;
+    }
+
+    function formatTensorMultiline(values, depth, rows, cols) {
+      const slices = buildTensorSlices(values, depth, rows, cols);
+      const lines = slices.map((slice, index) => `  d=${index}: ${formatMatrixInline(slice, rows, cols)}`);
+      return `[\n${lines.join("\n")}\n]`;
+    }
+
     function pushLog(message, kind = "runtime") {
       const text = String(message ?? "").trim();
       if (!text) {
@@ -2218,6 +2348,45 @@ extern "C" __global__ void solve(const float* input,
             }
           }
           output[row * outputCols + col] = sum;
+        }
+      }
+
+      return output;
+    }
+
+    function buildConvolution3DExpected(
+      input,
+      kernel,
+      inputDepth,
+      inputRows,
+      inputCols,
+      kernelDepth,
+      kernelRows,
+      kernelCols
+    ) {
+      const outputDepth = inputDepth - kernelDepth + 1;
+      const outputRows = inputRows - kernelRows + 1;
+      const outputCols = inputCols - kernelCols + 1;
+      const output = new Array(outputDepth * outputRows * outputCols).fill(0.0);
+
+      for (let od = 0; od < outputDepth; od += 1) {
+        for (let row = 0; row < outputRows; row += 1) {
+          for (let col = 0; col < outputCols; col += 1) {
+            let sum = 0.0;
+            for (let kd = 0; kd < kernelDepth; kd += 1) {
+              for (let kr = 0; kr < kernelRows; kr += 1) {
+                for (let kc = 0; kc < kernelCols; kc += 1) {
+                  const inputIndex =
+                    ((od + kd) * inputRows + (row + kr)) * inputCols + (col + kc);
+                  const kernelIndex =
+                    (kd * kernelRows + kr) * kernelCols + kc;
+                  sum += input[inputIndex] * kernel[kernelIndex];
+                }
+              }
+            }
+            const outputIndex = (od * outputRows + row) * outputCols + col;
+            output[outputIndex] = sum;
+          }
         }
       }
 
@@ -2367,6 +2536,8 @@ extern "C" __global__ void solve(const float* input,
       document.getElementById("matrix-n").value = "";
       document.getElementById("matrix-k").value = "";
       document.getElementById("matrix-l").value = "";
+      document.getElementById("matrix-p").value = "";
+      document.getElementById("matrix-q").value = "";
     }
 
     function clearLoadedProgramState() {
@@ -2430,31 +2601,50 @@ extern "C" __global__ void solve(const float* input,
         document.getElementById("matrix-n").value = String(example.sharedN);
         document.getElementById("matrix-k").value = String(example.colsK);
         document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "convolution-3d") {
+        document.getElementById("matrix-m").value = String(example.inputDepth);
+        document.getElementById("matrix-n").value = String(example.inputRows);
+        document.getElementById("matrix-k").value = String(example.inputCols);
+        document.getElementById("matrix-l").value = String(example.kernelDepth);
+        document.getElementById("matrix-p").value = String(example.kernelRows);
+        document.getElementById("matrix-q").value = String(example.kernelCols);
       } else if (problem.kind === "convolution-2d") {
         document.getElementById("matrix-m").value = String(example.inputRows);
         document.getElementById("matrix-n").value = String(example.inputCols);
         document.getElementById("matrix-k").value = String(example.kernelRows);
         document.getElementById("matrix-l").value = String(example.kernelCols);
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       } else if (problem.kind === "matrix-addition") {
         document.getElementById("matrix-m").value = String(example.matrixSize);
         document.getElementById("matrix-n").value = "";
         document.getElementById("matrix-k").value = "";
         document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       } else if (problem.kind === "color-inversion") {
         document.getElementById("matrix-m").value = String(example.width);
         document.getElementById("matrix-n").value = String(example.height);
         document.getElementById("matrix-k").value = "";
         document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       } else if (problem.kind === "matrix-transpose") {
         document.getElementById("matrix-m").value = String(example.rows);
         document.getElementById("matrix-n").value = String(example.cols);
         document.getElementById("matrix-k").value = "";
         document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       } else {
         document.getElementById("matrix-m").value = "";
         document.getElementById("matrix-n").value = "";
         document.getElementById("matrix-k").value = "";
         document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       }
 
       if (pushMessage) {
@@ -2596,6 +2786,15 @@ extern "C" __global__ void solve(const float* input,
             <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
             <span class="vector-line">Output: C = ${formatVector(example.expected)}</span>
           `;
+        } else if (problem.kind === "convolution-3d") {
+          const outputDepth = example.inputDepth - example.kernelDepth + 1;
+          const outputRows = example.inputRows - example.kernelRows + 1;
+          const outputCols = example.inputCols - example.kernelCols + 1;
+          bodyHtml = `
+            <span class="vector-line">Input:  input (${example.inputDepth} x ${example.inputRows} x ${example.inputCols}) = ${formatTensorInline(example.inputA, example.inputDepth, example.inputRows, example.inputCols)}</span>
+            <span class="vector-line">        kernel (${example.kernelDepth} x ${example.kernelRows} x ${example.kernelCols}) = ${formatTensorInline(example.inputB, example.kernelDepth, example.kernelRows, example.kernelCols)}</span>
+            <span class="vector-line">Output: output (${outputDepth} x ${outputRows} x ${outputCols}) = ${formatTensorInline(example.expected, outputDepth, outputRows, outputCols)}</span>
+          `;
         } else if (problem.kind === "convolution-2d") {
           const outputRows = example.inputRows - example.kernelRows + 1;
           const outputCols = example.inputCols - example.kernelCols + 1;
@@ -2705,6 +2904,7 @@ extern "C" __global__ void solve(const float* input,
 
       const usesSecondInput =
         problem.kind === "vector-add" ||
+        problem.kind === "convolution-3d" ||
         problem.kind === "convolution-2d" ||
         problem.kind === "convolution-1d" ||
         problem.kind === "matrix-addition" ||
@@ -2712,12 +2912,20 @@ extern "C" __global__ void solve(const float* input,
         problem.kind === "softmax-attention";
       const usesThirdInput = problem.kind === "softmax-attention";
       const isColorInversion = problem.kind === "color-inversion";
+      const isConvolution3D = problem.kind === "convolution-3d";
       const isConvolution2D = problem.kind === "convolution-2d";
       const isMatrixAddition = problem.kind === "matrix-addition";
       const isMatrixMultiply = problem.kind === "matrix-multiplication";
       const isTranspose = problem.kind === "matrix-transpose";
       const isAttention = problem.kind === "softmax-attention";
-      const usesMatrixDims = isConvolution2D || isMatrixAddition || isMatrixMultiply || isTranspose || isAttention || isColorInversion;
+      const usesMatrixDims =
+        isConvolution3D ||
+        isConvolution2D ||
+        isMatrixAddition ||
+        isMatrixMultiply ||
+        isTranspose ||
+        isAttention ||
+        isColorInversion;
       const canRun = problem.supportsRun;
       const canCompile = problem.supportsCudaCompile;
       const matrixDims = document.getElementById("matrix-dims");
@@ -2731,14 +2939,20 @@ extern "C" __global__ void solve(const float* input,
       const matrixN = document.getElementById("matrix-n");
       const matrixK = document.getElementById("matrix-k");
       const matrixL = document.getElementById("matrix-l");
+      const matrixP = document.getElementById("matrix-p");
+      const matrixQ = document.getElementById("matrix-q");
       const matrixMField = document.getElementById("matrix-m-field");
       const matrixNField = document.getElementById("matrix-n-field");
       const matrixKField = document.getElementById("matrix-k-field");
       const matrixLField = document.getElementById("matrix-l-field");
+      const matrixPField = document.getElementById("matrix-p-field");
+      const matrixQField = document.getElementById("matrix-q-field");
       const matrixMLabel = document.getElementById("matrix-m-label");
       const matrixNLabel = document.getElementById("matrix-n-label");
       const matrixKLabel = document.getElementById("matrix-k-label");
       const matrixLLabel = document.getElementById("matrix-l-label");
+      const matrixPLabel = document.getElementById("matrix-p-label");
+      const matrixQLabel = document.getElementById("matrix-q-label");
       const resetButton = document.getElementById("reset-button");
       const runButton = document.getElementById("run-button");
       const fileInput = document.getElementById("cuda-file");
@@ -2748,6 +2962,8 @@ extern "C" __global__ void solve(const float* input,
       document.getElementById("input-a-label").textContent =
         problem.kind === "vector-add"
           ? "Vector A"
+          : isConvolution3D
+            ? "Input Volume (flat)"
           : problem.kind === "convolution-2d"
             ? "Input Matrix (row-major)"
           : problem.kind === "convolution-1d"
@@ -2768,6 +2984,8 @@ extern "C" __global__ void solve(const float* input,
       document.getElementById("input-b-label").textContent =
         problem.kind === "vector-add"
           ? "Vector B"
+          : isConvolution3D
+            ? "Kernel Volume (flat)"
           : problem.kind === "convolution-2d"
             ? "Kernel (row-major)"
           : problem.kind === "convolution-1d"
@@ -2786,25 +3004,35 @@ extern "C" __global__ void solve(const float* input,
 
       matrixMLabel.textContent =
         isColorInversion ? "Width"
+        : isConvolution3D ? "Input Depth"
         : isConvolution2D ? "Input Rows"
         : isTranspose ? "Input Rows"
         : isMatrixAddition ? "Matrix N"
         : "Rows M";
       matrixNLabel.textContent =
         isColorInversion ? "Height"
+        : isConvolution3D ? "Input Rows"
         : isConvolution2D ? "Input Cols"
         : isTranspose ? "Input Cols"
         : isAttention ? "Keys N"
         : "Shared N";
       matrixKLabel.textContent =
-        isConvolution2D ? "Kernel Rows"
+        isConvolution3D ? "Input Cols"
+        : isConvolution2D ? "Kernel Rows"
         : isAttention ? "Feature d"
         : "Cols K";
-      matrixLLabel.textContent = isConvolution2D ? "Kernel Cols" : "Extra Dim";
+      matrixLLabel.textContent =
+        isConvolution3D ? "Kernel Depth"
+        : isConvolution2D ? "Kernel Cols"
+        : "Extra Dim";
+      matrixPLabel.textContent = isConvolution3D ? "Kernel Rows" : "Extra Dim";
+      matrixQLabel.textContent = isConvolution3D ? "Kernel Cols" : "Extra Dim";
 
       inputA.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "1.0, 2.0, 3.0"
+          : isConvolution3D
+            ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
           : problem.kind === "convolution-2d"
             ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
           : problem.kind === "convolution-1d"
@@ -2826,6 +3054,8 @@ extern "C" __global__ void solve(const float* input,
       inputB.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "4.0, 5.0, 6.0"
+          : isConvolution3D
+            ? "1.0, 0.0, 0.0, 1.0, 1.0, 1.0"
           : problem.kind === "convolution-2d"
             ? "0.0, 1.0, 1.0, 0.0"
           : problem.kind === "convolution-1d"
@@ -2849,13 +3079,17 @@ extern "C" __global__ void solve(const float* input,
       inputCField.hidden = !usesThirdInput;
       matrixDims.hidden = !usesMatrixDims;
       matrixMField.hidden = !usesMatrixDims;
-      matrixNField.hidden = !(isConvolution2D || isMatrixMultiply || isTranspose || isAttention || isColorInversion);
-      matrixKField.hidden = !(isConvolution2D || isMatrixMultiply || isAttention);
-      matrixLField.hidden = !isConvolution2D;
+      matrixNField.hidden = !(isConvolution3D || isConvolution2D || isMatrixMultiply || isTranspose || isAttention || isColorInversion);
+      matrixKField.hidden = !(isConvolution3D || isConvolution2D || isMatrixMultiply || isAttention);
+      matrixLField.hidden = !(isConvolution3D || isConvolution2D);
+      matrixPField.hidden = !isConvolution3D;
+      matrixQField.hidden = !isConvolution3D;
       matrixM.disabled = !canRun || !usesMatrixDims;
       matrixN.disabled = !canRun || matrixNField.hidden;
       matrixK.disabled = !canRun || matrixKField.hidden;
       matrixL.disabled = !canRun || matrixLField.hidden;
+      matrixP.disabled = !canRun || matrixPField.hidden;
+      matrixQ.disabled = !canRun || matrixQField.hidden;
 
       fileInput.disabled = !canCompile;
       setCudaSourceEditorDisabled(!canCompile);
@@ -2996,6 +3230,8 @@ extern "C" __global__ void solve(const float* input,
       } else if (problem.kind === "color-inversion") {
         vector.textContent = "image = [ waiting for a run ]";
       } else if (problem.kind === "softmax-attention") {
+        vector.textContent = "output = [ waiting for a run ]";
+      } else if (problem.kind === "convolution-3d") {
         vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "convolution-2d") {
         vector.textContent = "output = [ waiting for a run ]";
@@ -3194,6 +3430,69 @@ extern "C" __global__ void solve(const float* input,
         const item = document.createElement("li");
         item.className = "result-item";
         item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderConvolution3DResults(
+      input,
+      kernel,
+      inputDepth,
+      inputRows,
+      inputCols,
+      kernelDepth,
+      kernelRows,
+      kernelCols,
+      output
+    ) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const outputDepth = inputDepth - kernelDepth + 1;
+      const outputRows = inputRows - kernelRows + 1;
+      const outputCols = inputCols - kernelCols + 1;
+      const expected = buildConvolution3DExpected(
+        input,
+        kernel,
+        inputDepth,
+        inputRows,
+        inputCols,
+        kernelDepth,
+        kernelRows,
+        kernelCols
+      );
+      const allMatch = arraysAlmostEqual(output, expected, 1e-4);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${outputDepth} x ${outputRows} x ${outputCols}`;
+
+      const reference = document.createElement("span");
+      reference.className = "pill";
+      reference.textContent = "Reference: CPU valid 3D convolution";
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(reference);
+
+      vector.textContent = `output = ${formatTensorMultiline(output, outputDepth, outputRows, outputCols)}`;
+
+      const actualSlices = buildTensorSlices(output, outputDepth, outputRows, outputCols);
+      const expectedSlices = buildTensorSlices(expected, outputDepth, outputRows, outputCols);
+      for (let depth = 0; depth < outputDepth; depth += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML =
+          `<strong>Slice d=${depth}</strong>` +
+          `actual=${formatMatrixInline(actualSlices[depth], outputRows, outputCols)}, ` +
+          `expected=${formatMatrixInline(expectedSlices[depth], outputRows, outputCols)}`;
         list.appendChild(item);
       }
     }
@@ -3774,6 +4073,110 @@ extern "C" __global__ void solve(const float* input,
       }
     }
 
+    function runConvolution3D() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputDepth = parsePositiveInt(document.getElementById("matrix-m").value);
+      const inputRows = parsePositiveInt(document.getElementById("matrix-n").value);
+      const inputCols = parsePositiveInt(document.getElementById("matrix-k").value);
+      const kernelDepth = parsePositiveInt(document.getElementById("matrix-l").value);
+      const kernelRows = parsePositiveInt(document.getElementById("matrix-p").value);
+      const kernelCols = parsePositiveInt(document.getElementById("matrix-q").value);
+
+      if (
+        inputDepth === null ||
+        inputRows === null ||
+        inputCols === null ||
+        kernelDepth === null ||
+        kernelRows === null ||
+        kernelCols === null
+      ) {
+        pushLog(
+          "Input depth, input rows, input cols, kernel depth, kernel rows, and kernel cols must all be positive integers.",
+          "stderr"
+        );
+        return;
+      }
+
+      if (kernelDepth > inputDepth || kernelRows > inputRows || kernelCols > inputCols) {
+        pushLog("Kernel dimensions must not exceed the input dimensions.", "stderr");
+        return;
+      }
+
+      const input = parseFloatList(document.getElementById("input-a").value);
+      const kernel = parseFloatList(document.getElementById("input-b").value);
+
+      if (input.length !== inputDepth * inputRows * inputCols) {
+        pushLog("Input volume length does not match input_depth x input_rows x input_cols.", "stderr");
+        return;
+      }
+
+      if (kernel.length !== kernelDepth * kernelRows * kernelCols) {
+        pushLog("Kernel volume length does not match kernel_depth x kernel_rows x kernel_cols.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputBytes = input.length * Float32Array.BYTES_PER_ELEMENT;
+      const kernelBytes = kernel.length * Float32Array.BYTES_PER_ELEMENT;
+      const inputPtr = window.Module._malloc(inputBytes);
+      const kernelPtr = window.Module._malloc(kernelBytes);
+
+      try {
+        window.Module.HEAPF32.set(input, inputPtr >> 2);
+        window.Module.HEAPF32.set(kernel, kernelPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_convolution_3d",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [
+            kernelName,
+            inputPtr,
+            input.length,
+            kernelPtr,
+            kernel.length,
+            inputDepth,
+            inputRows,
+            inputCols,
+            kernelDepth,
+            kernelRows,
+            kernelCols
+          ]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderConvolution3DResults(
+          input,
+          kernel,
+          inputDepth,
+          inputRows,
+          inputCols,
+          kernelDepth,
+          kernelRows,
+          kernelCols,
+          output
+        );
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputPtr);
+        window.Module._free(kernelPtr);
+      }
+    }
+
     function runConvolution2D() {
       if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
         return;
@@ -4123,6 +4526,11 @@ extern "C" __global__ void solve(const float* input,
 
       if (!problem.supportsRun) {
         pushLog("The selected challenge does not have a browser judge implementation yet.", "stderr");
+        return;
+      }
+
+      if (problem.kind === "convolution-3d") {
+        runConvolution3D();
         return;
       }
 

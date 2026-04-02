@@ -2091,6 +2091,69 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
           }
         ]
       },
+      25: {
+        kind: "cross-entropy-loss",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with logits, true_labels, and loss pointers plus 32-bit N and C scalars. The logits input is treated as an N x C row-major matrix, true_labels has length N, and the final average loss must be stored in loss[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full numerically stable categorical cross entropy directly in solve.",
+        testcaseHint: "Paste a row-major logits matrix and a comma-separated int label vector, then provide N and C.",
+        testcaseHelp: "Logits length must equal N x C, labels length must equal N, and each label must be in [0, C). The browser judge compares loss[0] against a CPU log-sum-exp reference.",
+        resultTitle: "Cross Entropy Output",
+        resultSubtitle: "The final scalar loss must be stored in loss[0].",
+        signatureHint: `extern "C" __global__ void solve(const float* logits, const int* true_labels, float* loss, int N, int C) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* logits,
+                                 const int* true_labels,
+                                 float* loss,
+                                 int N,
+                                 int C) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        float total = 0.0f;
+        for (int row = 0; row < N; row = row + 1) {
+            int base = row * C;
+            float row_max = logits[base];
+            for (int col = 1; col < C; col = col + 1) {
+                if (logits[base + col] > row_max) {
+                    row_max = logits[base + col];
+                }
+            }
+
+            float sum_exp = 0.0f;
+            for (int col = 0; col < C; col = col + 1) {
+                sum_exp += expf(logits[base + col] - row_max);
+            }
+
+            int label = true_labels[row];
+            float logsumexp = row_max + logf(sum_exp);
+            total += logsumexp - logits[base + label];
+        }
+
+        loss[0] = total / (float)N;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rows: 2,
+            cols: 3,
+            inputA: [2.0, 1.0, 0.0, 0.5, 0.5, 0.5],
+            inputB: [0, 2],
+            expected: 0.753109
+          },
+          {
+            label: "Example 2",
+            rows: 2,
+            cols: 3,
+            inputA: [1.2, 0.2, -0.1, -1.0, 2.0, 0.0],
+            inputB: [0, 1],
+            expected: 0.332396
+          }
+        ]
+      },
       27: {
         kind: "mse",
         supportsRun: true,
@@ -2274,6 +2337,50 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             label: "Example 1",
             inputA: [1.0, 2.0, 3.0, 4.0],
             expected: [1.0, 2.0, 3.0, 4.0]
+          }
+        ]
+      },
+      35: {
+        kind: "monte-carlo-integration",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with y_samples and result pointers plus float32 a and b scalars and one 32-bit n_samples scalar. The final scalar integral estimate must be stored in result[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the Monte Carlo estimate directly in solve.",
+        testcaseHint: "Paste the sampled function values, then provide lower bound a and upper bound b.",
+        testcaseHelp: "Input must contain at least one float sample. The browser judge computes (b - a) * mean(y_samples) on CPU and compares it to result[0].",
+        resultTitle: "Monte Carlo Output",
+        resultSubtitle: "The final scalar estimate must be stored in result[0].",
+        signatureHint: `extern "C" __global__ void solve(const float* y_samples, float* result, float a, float b, int n_samples) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* y_samples,
+                                 float* result,
+                                 float a,
+                                 float b,
+                                 int n_samples) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        float sum = 0.0f;
+        for (int i = 0; i < n_samples; i = i + 1) {
+            sum += y_samples[i];
+        }
+        result[0] = (b - a) * (sum / (float)n_samples);
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            lowerBound: 0.0,
+            upperBound: 2.0,
+            inputA: [1.0, 4.0, 9.0, 16.0],
+            expected: 15.0
+          },
+          {
+            label: "Example 2",
+            lowerBound: -1.0,
+            upperBound: 1.0,
+            inputA: [0.5, 1.5, -0.5, 2.5],
+            expected: 2.0
           }
         ]
       },
@@ -2586,6 +2693,57 @@ extern "C" __global__ void solve(const int* input,
           }
         ]
       },
+      50: {
+        kind: "rms-normalization",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input and output pointers plus float32 gamma and beta scalars and one 32-bit N scalar. The final normalized vector must be stored in the output buffer using eps = 1e-5.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full RMS normalization directly in solve.",
+        testcaseHint: "Paste a comma-separated float vector, then provide N, gamma, and beta.",
+        testcaseHelp: "Input length must equal N. The browser judge computes rms = sqrt(mean(x^2) + 1e-5) on CPU and compares the full output vector against gamma * x / rms + beta.",
+        resultTitle: "RMSNorm Output",
+        resultSubtitle: "The final normalized vector must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, float gamma, float beta, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* input,
+                                 float* output,
+                                 float gamma,
+                                 float beta,
+                                 int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        float sum_sq = 0.0f;
+        for (int i = 0; i < N; i = i + 1) {
+            sum_sq += input[i] * input[i];
+        }
+
+        float rms = sqrtf(sum_sq / (float)N + 1.0e-5f);
+        for (int i = 0; i < N; i = i + 1) {
+            output[i] = gamma * (input[i] / rms) + beta;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            length: 4,
+            gamma: 1.0,
+            beta: 0.0,
+            inputA: [1.0, 2.0, 3.0, 4.0],
+            expected: [0.365148, 0.730296, 1.095445, 1.460593]
+          },
+          {
+            label: "Example 2",
+            length: 3,
+            gamma: 0.5,
+            beta: 1.0,
+            inputA: [1.0, 2.0, 3.0],
+            expected: [1.231455, 1.462909, 1.694364]
+          }
+        ]
+      },
       51: {
         kind: "max-subarray-sum",
         supportsRun: true,
@@ -2661,6 +2819,72 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
           }
         ]
       },
+      53: {
+        kind: "causal-self-attention",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with Q, K, V, and output pointers plus 32-bit M and d scalars. All three input matrices are treated as M x d row-major matrices, and the output must contain causal self-attention values.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full causal attention output directly in solve.",
+        testcaseHint: "Paste row-major Q, K, and V matrices, then provide M and d.",
+        testcaseHelp: "Each input length must equal M x d. The browser judge applies a causal mask j <= i and compares the full output matrix against a CPU reference.",
+        resultTitle: "Causal Attention Output",
+        resultSubtitle: "The final M x d output matrix must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* Q, const float* K, const float* V, float* output, int M, int d) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* Q,
+                                 const float* K,
+                                 const float* V,
+                                 float* output,
+                                 int M,
+                                 int d) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < M; i = i + 1) {
+            float scores[64];
+            float max_score = -1.0e30f;
+
+            for (int j = 0; j <= i; j = j + 1) {
+                float score = 0.0f;
+                for (int t = 0; t < d; t = t + 1) {
+                    score += Q[i * d + t] * K[j * d + t];
+                }
+                score = score / sqrtf((float)d);
+                scores[j] = score;
+                if (score > max_score) {
+                    max_score = score;
+                }
+            }
+
+            float sum_exp = 0.0f;
+            for (int j = 0; j <= i; j = j + 1) {
+                scores[j] = expf(scores[j] - max_score);
+                sum_exp += scores[j];
+            }
+
+            for (int t = 0; t < d; t = t + 1) {
+                float acc = 0.0f;
+                for (int j = 0; j <= i; j = j + 1) {
+                    acc += (scores[j] / sum_exp) * V[j * d + t];
+                }
+                output[i * d + t] = acc;
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 3,
+            colsK: 2,
+            inputA: [1.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            inputB: [1.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            inputC: [2.0, 1.0, 0.0, 3.0, 4.0, 5.0],
+            expected: [2.0, 1.0, 0.660477, 2.339523, 2.51047, 3.51047]
+          }
+        ]
+      },
       54: {
         kind: "swish",
         supportsRun: true,
@@ -2687,6 +2911,163 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             label: "Example 1",
             inputA: [-1.0, 0.0, 1.0, 2.0],
             expected: [-0.268941, 0.0, 0.731059, 1.761594]
+          }
+        ]
+      },
+      55: {
+        kind: "attention-with-linear-biases",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with Q, K, V, and output pointers plus 32-bit M, N, and d scalars followed by one float32 alpha scalar. Q is treated as M x d and K/V are treated as N x d row-major matrices.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full ALiBi attention output directly in solve.",
+        testcaseHint: "Paste row-major Q, K, and V matrices, then provide M, N, d, and alpha.",
+        testcaseHelp: "Q length must equal M x d, K/V lengths must equal N x d, and alpha must be finite. The browser judge compares the full output matrix against a CPU ALiBi attention reference.",
+        resultTitle: "ALiBi Attention Output",
+        resultSubtitle: "The final M x d output matrix must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* Q, const float* K, const float* V, float* output, int M, int N, int d, float alpha) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* Q,
+                                 const float* K,
+                                 const float* V,
+                                 float* output,
+                                 int M,
+                                 int N,
+                                 int d,
+                                 float alpha) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < M; i = i + 1) {
+            float scores[64];
+            float max_score = -1.0e30f;
+
+            for (int j = 0; j < N; j = j + 1) {
+                float score = 0.0f;
+                for (int t = 0; t < d; t = t + 1) {
+                    score += Q[i * d + t] * K[j * d + t];
+                }
+                score = score / sqrtf((float)d) + alpha * (float)(i - j);
+                scores[j] = score;
+                if (score > max_score) {
+                    max_score = score;
+                }
+            }
+
+            float sum_exp = 0.0f;
+            for (int j = 0; j < N; j = j + 1) {
+                scores[j] = expf(scores[j] - max_score);
+                sum_exp += scores[j];
+            }
+
+            for (int t = 0; t < d; t = t + 1) {
+                float acc = 0.0f;
+                for (int j = 0; j < N; j = j + 1) {
+                    acc += (scores[j] / sum_exp) * V[j * d + t];
+                }
+                output[i * d + t] = acc;
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 2,
+            sharedN: 3,
+            colsK: 4,
+            alpha: 0.5,
+            inputA: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            inputB: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            inputC: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            expected: [3.046851, 4.046851, 5.046851, 6.046851, 3.932174, 4.932174, 5.932174, 6.932174]
+          },
+          {
+            label: "Example 2",
+            rowsM: 1,
+            sharedN: 2,
+            colsK: 2,
+            alpha: 0.8,
+            inputA: [1.0, 2.0],
+            inputB: [1.0, 0.0, 0.0, 1.0],
+            inputC: [3.0, 4.0, 5.0, 6.0],
+            expected: [3.953587, 4.953587]
+          }
+        ]
+      },
+      59: {
+        kind: "sliding-window-attention",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with Q, K, V, and output pointers plus 32-bit M, d, and window_size scalars. All three input matrices are treated as M x d row-major matrices, and each query may only attend to keys in [i - window_size, i + window_size].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full sliding-window attention output directly in solve.",
+        testcaseHint: "Paste row-major Q, K, and V matrices, then provide M, d, and window_size.",
+        testcaseHelp: "Each input length must equal M x d, and window_size must be non-negative. The browser judge compares the full output matrix against a CPU local-attention reference.",
+        resultTitle: "Sliding Attention Output",
+        resultSubtitle: "The final M x d output matrix must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* Q, const float* K, const float* V, float* output, int M, int d, int window_size) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* Q,
+                                 const float* K,
+                                 const float* V,
+                                 float* output,
+                                 int M,
+                                 int d,
+                                 int window_size) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < M; i = i + 1) {
+            int left = i - window_size;
+            if (left < 0) {
+                left = 0;
+            }
+            int right = i + window_size;
+            if (right >= M) {
+                right = M - 1;
+            }
+
+            float scores[64];
+            float max_score = -1.0e30f;
+            for (int j = left; j <= right; j = j + 1) {
+                float score = 0.0f;
+                for (int t = 0; t < d; t = t + 1) {
+                    score += Q[i * d + t] * K[j * d + t];
+                }
+                score = score / sqrtf((float)d);
+                scores[j - left] = score;
+                if (score > max_score) {
+                    max_score = score;
+                }
+            }
+
+            float sum_exp = 0.0f;
+            for (int j = left; j <= right; j = j + 1) {
+                scores[j - left] = expf(scores[j - left] - max_score);
+                sum_exp += scores[j - left];
+            }
+
+            for (int t = 0; t < d; t = t + 1) {
+                float acc = 0.0f;
+                for (int j = left; j <= right; j = j + 1) {
+                    acc += (scores[j - left] / sum_exp) * V[j * d + t];
+                }
+                output[i * d + t] = acc;
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 3,
+            colsK: 2,
+            windowSize: 1,
+            inputA: [1.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            inputB: [1.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            inputC: [2.0, 1.0, 0.0, 3.0, 4.0, 5.0],
+            expected: [1.339523, 1.660477, 2.0, 3.406673, 2.679046, 4.339523]
           }
         ]
       },
@@ -2747,6 +3128,57 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             label: "Example 1",
             inputA: [-1.0, 0.0, 1.0, 2.0],
             expected: [0.268941, 0.5, 0.731059, 0.880797]
+          }
+        ]
+      },
+      62: {
+        kind: "value-clipping",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input and output pointers plus float32 lo and hi scalars and one 32-bit N scalar. The final clipped vector must be stored in the output buffer.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that clips every element directly into the output vector.",
+        testcaseHint: "Paste a comma-separated float vector, then provide N, lo, and hi.",
+        testcaseHelp: "Input length must equal N, and lo must be less than or equal to hi. The browser judge compares the full output vector against a CPU clamp reference.",
+        resultTitle: "Clipping Output",
+        resultSubtitle: "The final clipped vector must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, float lo, float hi, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input,
+                                 float* output,
+                                 float lo,
+                                 float hi,
+                                 int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < N; i = i + 1) {
+            float x = input[i];
+            if (x < lo) {
+                x = lo;
+            }
+            if (x > hi) {
+                x = hi;
+            }
+            output[i] = x;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            length: 4,
+            lowerBound: 0.0,
+            upperBound: 3.5,
+            inputA: [1.5, -2.0, 3.0, 4.5],
+            expected: [1.5, 0.0, 3.0, 3.5]
+          },
+          {
+            label: "Example 2",
+            length: 3,
+            lowerBound: -0.5,
+            upperBound: 2.5,
+            inputA: [-1.0, 2.0, 5.0],
+            expected: [-0.5, 2.0, 2.5]
           }
         ]
       },
@@ -3642,6 +4074,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       return Number.isInteger(value) ? value : null;
     }
 
+    function parseFiniteFloat(text) {
+      const value = Number.parseFloat(String(text ?? "").trim());
+      return Number.isFinite(value) ? value : null;
+    }
+
     function buildVectorAddExpected(inputA, inputB) {
       return inputA.map((value, index) => value + inputB[index]);
     }
@@ -3844,6 +4281,33 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         sum += diff * diff;
       }
       return sum / inputA.length;
+    }
+
+    function buildCrossEntropyExpected(logits, labels, rowsN, colsC) {
+      let total = 0.0;
+      for (let row = 0; row < rowsN; row += 1) {
+        const base = row * colsC;
+        let rowMax = logits[base];
+        for (let col = 1; col < colsC; col += 1) {
+          if (logits[base + col] > rowMax) {
+            rowMax = logits[base + col];
+          }
+        }
+
+        let sumExp = 0.0;
+        for (let col = 0; col < colsC; col += 1) {
+          sumExp += Math.exp(logits[base + col] - rowMax);
+        }
+
+        total += rowMax + Math.log(sumExp) - logits[base + labels[row]];
+      }
+
+      return total / rowsN;
+    }
+
+    function buildMonteCarloExpected(samples, lowerBound, upperBound) {
+      const sum = samples.reduce((acc, value) => acc + value, 0.0);
+      return (upperBound - lowerBound) * (sum / samples.length);
     }
 
     function buildTopKExpected(inputA, k) {
@@ -4063,6 +4527,119 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
 
       return output;
+    }
+
+    function buildCausalSelfAttentionExpected(inputQ, inputK, inputV, rowsM, featureD) {
+      const output = new Array(rowsM * featureD).fill(0);
+      const scale = 1 / Math.sqrt(featureD);
+
+      for (let row = 0; row < rowsM; row += 1) {
+        const scores = [];
+        for (let key = 0; key <= row; key += 1) {
+          let dot = 0.0;
+          for (let i = 0; i < featureD; i += 1) {
+            dot += inputQ[row * featureD + i] * inputK[key * featureD + i];
+          }
+          scores.push(dot * scale);
+        }
+
+        const maxScore = Math.max(...scores);
+        const weights = scores.map((score) => Math.exp(score - maxScore));
+        const denom = weights.reduce((acc, value) => acc + value, 0.0);
+
+        for (let col = 0; col < featureD; col += 1) {
+          let acc = 0.0;
+          for (let key = 0; key <= row; key += 1) {
+            acc += (weights[key] / denom) * inputV[key * featureD + col];
+          }
+          output[row * featureD + col] = acc;
+        }
+      }
+
+      return output;
+    }
+
+    function buildSlidingWindowAttentionExpected(inputQ, inputK, inputV, rowsM, featureD, windowSize) {
+      const output = new Array(rowsM * featureD).fill(0);
+      const scale = 1 / Math.sqrt(featureD);
+
+      for (let row = 0; row < rowsM; row += 1) {
+        const left = Math.max(0, row - windowSize);
+        const right = Math.min(rowsM - 1, row + windowSize);
+        const scores = [];
+
+        for (let key = left; key <= right; key += 1) {
+          let dot = 0.0;
+          for (let i = 0; i < featureD; i += 1) {
+            dot += inputQ[row * featureD + i] * inputK[key * featureD + i];
+          }
+          scores.push(dot * scale);
+        }
+
+        const maxScore = Math.max(...scores);
+        const weights = scores.map((score) => Math.exp(score - maxScore));
+        const denom = weights.reduce((acc, value) => acc + value, 0.0);
+
+        for (let col = 0; col < featureD; col += 1) {
+          let acc = 0.0;
+          for (let key = left; key <= right; key += 1) {
+            acc += (weights[key - left] / denom) * inputV[key * featureD + col];
+          }
+          output[row * featureD + col] = acc;
+        }
+      }
+
+      return output;
+    }
+
+    function buildRmsNormalizationExpected(inputA, gamma, beta) {
+      let sumSquares = 0.0;
+      for (let i = 0; i < inputA.length; i += 1) {
+        sumSquares += inputA[i] * inputA[i];
+      }
+
+      const rms = Math.sqrt(sumSquares / inputA.length + 1.0e-5);
+      return inputA.map((value) => gamma * (value / rms) + beta);
+    }
+
+    function buildAlibiAttentionExpected(inputQ, inputK, inputV, rowsM, sharedN, featureD, alpha) {
+      const output = new Array(rowsM * featureD).fill(0);
+      const scale = 1 / Math.sqrt(featureD);
+
+      for (let row = 0; row < rowsM; row += 1) {
+        const scores = new Array(sharedN).fill(0);
+        let maxScore = -Infinity;
+
+        for (let key = 0; key < sharedN; key += 1) {
+          let dot = 0.0;
+          for (let i = 0; i < featureD; i += 1) {
+            dot += inputQ[row * featureD + i] * inputK[key * featureD + i];
+          }
+
+          const score = dot * scale + alpha * (row - key);
+          scores[key] = score;
+          if (score > maxScore) {
+            maxScore = score;
+          }
+        }
+
+        const weights = scores.map((score) => Math.exp(score - maxScore));
+        const denom = weights.reduce((acc, value) => acc + value, 0.0);
+
+        for (let col = 0; col < featureD; col += 1) {
+          let acc = 0.0;
+          for (let key = 0; key < sharedN; key += 1) {
+            acc += (weights[key] / denom) * inputV[key * featureD + col];
+          }
+          output[row * featureD + col] = acc;
+        }
+      }
+
+      return output;
+    }
+
+    function buildValueClippingExpected(inputA, lowerBound, upperBound) {
+      return inputA.map((value) => Math.min(upperBound, Math.max(lowerBound, value)));
     }
 
     function buildMultiHeadAttentionExpected(inputQ, inputK, inputV, sequenceN, modelD, numHeads) {
@@ -4300,6 +4877,20 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         document.getElementById("matrix-l").value = String(example.kernelCols);
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "cross-entropy-loss") {
+        document.getElementById("matrix-m").value = String(example.rows);
+        document.getElementById("matrix-n").value = String(example.cols);
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "rms-normalization") {
+        document.getElementById("matrix-m").value = String(example.length);
+        document.getElementById("matrix-n").value = String(example.gamma);
+        document.getElementById("matrix-k").value = String(example.beta);
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       } else if (problem.kind === "gaussian-blur") {
         document.getElementById("matrix-m").value = String(example.inputRows);
         document.getElementById("matrix-n").value = String(example.inputCols);
@@ -4324,6 +4915,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       } else if (problem.kind === "matrix-transpose") {
         document.getElementById("matrix-m").value = String(example.rows);
         document.getElementById("matrix-n").value = String(example.cols);
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "monte-carlo-integration") {
+        document.getElementById("matrix-m").value = String(example.lowerBound);
+        document.getElementById("matrix-n").value = String(example.upperBound);
         document.getElementById("matrix-k").value = "";
         document.getElementById("matrix-l").value = "";
         document.getElementById("matrix-p").value = "";
@@ -4409,6 +5007,34 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         document.getElementById("matrix-m").value = String(example.rows);
         document.getElementById("matrix-n").value = String(example.cols);
         document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "causal-self-attention") {
+        document.getElementById("matrix-m").value = String(example.rowsM);
+        document.getElementById("matrix-n").value = String(example.colsK);
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "attention-with-linear-biases") {
+        document.getElementById("matrix-m").value = String(example.rowsM);
+        document.getElementById("matrix-n").value = String(example.sharedN);
+        document.getElementById("matrix-k").value = String(example.colsK);
+        document.getElementById("matrix-l").value = String(example.alpha);
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "sliding-window-attention") {
+        document.getElementById("matrix-m").value = String(example.rowsM);
+        document.getElementById("matrix-n").value = String(example.colsK);
+        document.getElementById("matrix-k").value = String(example.windowSize);
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "value-clipping") {
+        document.getElementById("matrix-m").value = String(example.length);
+        document.getElementById("matrix-n").value = String(example.lowerBound);
+        document.getElementById("matrix-k").value = String(example.upperBound);
         document.getElementById("matrix-l").value = "";
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
@@ -4589,6 +5215,18 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">        kernel = ${formatVector(example.inputB)}</span>
             <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
           `;
+        } else if (problem.kind === "cross-entropy-loss") {
+          bodyHtml = `
+            <span class="vector-line">Input:  logits (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
+            <span class="vector-line">        labels = [${example.inputB.join(", ")}]</span>
+            <span class="vector-line">Output: loss[0] = ${formatNumber(example.expected)}</span>
+          `;
+        } else if (problem.kind === "rms-normalization") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">        gamma = ${formatNumber(example.gamma)}, beta = ${formatNumber(example.beta)}</span>
+            <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
+          `;
         } else if (problem.kind === "matrix-addition") {
           bodyHtml = `
             <span class="vector-line">Input:  A (${example.matrixSize} x ${example.matrixSize}) = ${formatMatrixInline(example.inputA, example.matrixSize, example.matrixSize)}</span>
@@ -4608,6 +5246,29 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">Input:  Q (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsK)}</span>
             <span class="vector-line">        K (${example.sharedN} x ${example.colsK}) = ${formatMatrixInline(example.inputB, example.sharedN, example.colsK)}</span>
             <span class="vector-line">        V (${example.sharedN} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.sharedN, example.colsK)}</span>
+            <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
+          `;
+        } else if (problem.kind === "causal-self-attention") {
+          bodyHtml = `
+            <span class="vector-line">Input:  Q (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        K (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputB, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        V (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
+          `;
+        } else if (problem.kind === "attention-with-linear-biases") {
+          bodyHtml = `
+            <span class="vector-line">Input:  Q (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        K (${example.sharedN} x ${example.colsK}) = ${formatMatrixInline(example.inputB, example.sharedN, example.colsK)}</span>
+            <span class="vector-line">        V (${example.sharedN} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.sharedN, example.colsK)}</span>
+            <span class="vector-line">        alpha = ${formatNumber(example.alpha)}</span>
+            <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
+          `;
+        } else if (problem.kind === "sliding-window-attention") {
+          bodyHtml = `
+            <span class="vector-line">Input:  Q (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        K (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputB, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        V (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        window_size = ${example.windowSize}</span>
             <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
           `;
         } else if (problem.kind === "color-inversion") {
@@ -4724,6 +5385,18 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">        P = ${example.power}</span>
             <span class="vector-line">Output: A^P (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.expected, example.rows, example.cols)}</span>
           `;
+        } else if (problem.kind === "monte-carlo-integration") {
+          bodyHtml = `
+            <span class="vector-line">Input:  y_samples = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">        a = ${formatNumber(example.lowerBound)}, b = ${formatNumber(example.upperBound)}</span>
+            <span class="vector-line">Output: result[0] = ${formatNumber(example.expected)}</span>
+          `;
+        } else if (problem.kind === "value-clipping") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">        lo = ${formatNumber(example.lowerBound)}, hi = ${formatNumber(example.upperBound)}</span>
+            <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
+          `;
         } else if (problem.kind === "all-pairs-shortest-paths") {
           bodyHtml = `
             <span class="vector-line">Input:  dist (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
@@ -4820,10 +5493,14 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "convolution-2d" ||
         problem.kind === "gaussian-blur" ||
         problem.kind === "convolution-1d" ||
+        problem.kind === "cross-entropy-loss" ||
         problem.kind === "matrix-addition" ||
         problem.kind === "matrix-multiplication" ||
         problem.kind === "multi-head-attention" ||
         problem.kind === "softmax-attention" ||
+        problem.kind === "attention-with-linear-biases" ||
+        problem.kind === "causal-self-attention" ||
+        problem.kind === "sliding-window-attention" ||
         problem.kind === "dot-product" ||
         problem.kind === "mse" ||
         problem.kind === "interleave-arrays" ||
@@ -4831,15 +5508,23 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "parallel-merge";
       const isSoftmaxAttention = problem.kind === "softmax-attention";
       const isMultiHeadAttention = problem.kind === "multi-head-attention";
-      const usesThirdInput = isSoftmaxAttention || isMultiHeadAttention;
+      const isAlibiAttention = problem.kind === "attention-with-linear-biases";
+      const isCausalAttention = problem.kind === "causal-self-attention";
+      const isSlidingAttention = problem.kind === "sliding-window-attention";
+      const usesThirdInput =
+        isSoftmaxAttention || isMultiHeadAttention || isAlibiAttention || isCausalAttention || isSlidingAttention;
       const isColorInversion = problem.kind === "color-inversion";
       const isGrayscale = problem.kind === "rgb-to-grayscale";
       const isConvolution3D = problem.kind === "convolution-3d";
       const isConvolution2D = problem.kind === "convolution-2d";
       const isGaussianBlur = problem.kind === "gaussian-blur";
+      const isCrossEntropy = problem.kind === "cross-entropy-loss";
+      const isRmsNormalization = problem.kind === "rms-normalization";
       const isMatrixAddition = problem.kind === "matrix-addition";
       const isMatrixMultiply = problem.kind === "matrix-multiplication";
       const isTranspose = problem.kind === "matrix-transpose";
+      const isMonteCarlo = problem.kind === "monte-carlo-integration";
+      const isValueClipping = problem.kind === "value-clipping";
       const isMatrixPower = problem.kind === "matrix-power";
       const isAllPairsShortestPaths = problem.kind === "all-pairs-shortest-paths";
       const isHistogramming = problem.kind === "histogramming";
@@ -4855,13 +5540,18 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const isInterleave = problem.kind === "interleave-arrays";
       const isMergeSorted = problem.kind === "merge-sorted" || problem.kind === "parallel-merge";
       const isJacobi2D = problem.kind === "jacobi-2d";
-      const isAttention = isSoftmaxAttention || isMultiHeadAttention;
+      const isAttention =
+        isSoftmaxAttention || isMultiHeadAttention || isAlibiAttention || isCausalAttention || isSlidingAttention;
       const showMatrixM =
         isConvolution3D ||
         isConvolution2D ||
         isGaussianBlur ||
+        isCrossEntropy ||
+        isRmsNormalization ||
         isMatrixAddition ||
         isMatrixMultiply ||
+        isMonteCarlo ||
+        isValueClipping ||
         isTranspose ||
         isMatrixPower ||
         isAllPairsShortestPaths ||
@@ -4878,7 +5568,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution3D ||
         isConvolution2D ||
         isGaussianBlur ||
+        isCrossEntropy ||
+        isRmsNormalization ||
         isMatrixMultiply ||
+        isMonteCarlo ||
+        isValueClipping ||
         isTranspose ||
         isMatrixPower ||
         isAttention ||
@@ -4893,8 +5587,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution3D ||
         isConvolution2D ||
         isGaussianBlur ||
+        isRmsNormalization ||
         isMatrixMultiply ||
-        isAttention ||
+        isSoftmaxAttention ||
+        isAlibiAttention ||
+        isMultiHeadAttention ||
+        isSlidingAttention ||
+        isValueClipping ||
         isHistogramming ||
         isTopK ||
         isCountArray ||
@@ -4905,6 +5604,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution3D ||
         isConvolution2D ||
         isGaussianBlur ||
+        isAlibiAttention ||
         isCountArray3D ||
         isSubarraySum2D;
       const showMatrixP = isConvolution3D || isSubarraySum2D;
@@ -4962,6 +5662,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "Input Matrix (row-major)"
           : problem.kind === "convolution-1d"
             ? "Input Array"
+          : isCrossEntropy
+            ? "Logits Matrix (row-major)"
+          : isRmsNormalization || isValueClipping
+            ? "Input Vector"
           : isMatrixPower || isAllPairsShortestPaths
             ? "Input Matrix (row-major)"
           : isColorInversion
@@ -4998,6 +5702,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "Kernel (row-major)"
           : problem.kind === "convolution-1d"
             ? "Kernel"
+          : isCrossEntropy
+            ? "True Labels"
           : isAttention
             ? "Matrix K (row-major)"
           : isMatrixAddition
@@ -5020,6 +5726,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isConvolution3D ? "Input Depth"
         : isGaussianBlur ? "Input Rows"
         : isConvolution2D ? "Input Rows"
+        : isCrossEntropy ? "Rows N"
+        : isRmsNormalization ? "Elements N"
+        : isMonteCarlo ? "Lower a"
+        : isValueClipping ? "Elements N"
         : isMatrixPower ? "Matrix N"
         : isAllPairsShortestPaths ? "Matrix N"
         : isTranspose ? "Input Rows"
@@ -5039,6 +5749,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isConvolution3D ? "Input Rows"
         : isGaussianBlur ? "Input Cols"
         : isConvolution2D ? "Input Cols"
+        : isCrossEntropy ? "Cols C"
+        : isRmsNormalization ? "Gamma"
+        : isMonteCarlo ? "Upper b"
+        : isValueClipping ? "Lower lo"
         : isMatrixPower ? "Power P"
         : isTranspose ? "Input Cols"
         : isCountArray2D ? "Cols M"
@@ -5046,6 +5760,9 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isSubarraySum ? "End E"
         : isSubarraySum2D ? "Cols M"
         : isJacobi2D ? "Cols"
+        : isAlibiAttention ? "Keys N"
+        : isCausalAttention ? "Feature d"
+        : isSlidingAttention ? "Feature d"
         : isSoftmaxAttention ? "Keys N"
         : isMultiHeadAttention ? "Model d"
         : "Shared N";
@@ -5053,8 +5770,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution3D ? "Input Cols"
         : isGaussianBlur ? "Kernel Rows"
         : isConvolution2D ? "Kernel Rows"
+        : isRmsNormalization ? "Beta"
         : isSoftmaxAttention ? "Feature d"
+        : isAlibiAttention ? "Feature d"
+        : isSlidingAttention ? "Window Size"
         : isMultiHeadAttention ? "Heads h"
+        : isValueClipping ? "Upper hi"
         : isTopK ? "Top k"
         : isCountArray ? "Target K"
         : isCountArray2D ? "Target K"
@@ -5066,6 +5787,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution3D ? "Kernel Depth"
         : isGaussianBlur ? "Kernel Cols"
         : isConvolution2D ? "Kernel Cols"
+        : isAlibiAttention ? "Alpha"
         : isCountArray3D ? "Target P"
         : isSubarraySum2D ? "End Row"
         : "Extra Dim";
@@ -5091,6 +5813,14 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
           : problem.kind === "convolution-1d"
             ? "1.0, 2.0, 3.0, 4.0, 5.0"
+          : isCrossEntropy
+            ? "2.0, 1.0, 0.0, 0.5, 0.5, 0.5"
+          : isRmsNormalization
+            ? "1.0, 2.0, 3.0, 4.0"
+          : isMonteCarlo
+            ? "1.0, 4.0, 9.0, 16.0"
+          : isValueClipping
+            ? "1.5, -2.0, 3.0, 4.5"
           : isMatrixPower
             ? "1.0, 2.0, 3.0, 4.0"
           : isAllPairsShortestPaths
@@ -5103,6 +5833,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "1.0, 2.0, 3.0, 4.0"
           : isMse
             ? "1.0, 2.0, 3.0, 4.0"
+          : isAlibiAttention
+            ? "1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0"
+          : isCausalAttention || isSlidingAttention
+            ? "1.0, 0.0, 0.0, 1.0, 1.0, 1.0"
           : isAttention
             ? "1.0, 0.0, 0.0, 0.0"
           : isMatrixAddition
@@ -5130,6 +5864,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "0.0, 1.0, 1.0, 0.0"
           : problem.kind === "convolution-1d"
             ? "1.0, 0.0, -1.0"
+          : isCrossEntropy
+            ? "0, 2"
+          : isAlibiAttention
+            ? "1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0"
+          : isCausalAttention || isSlidingAttention
+            ? "1.0, 0.0, 0.0, 1.0, 1.0, 1.0"
           : isAttention
             ? "1.0, 0.0, 0.0, 0.0"
             : isMatrixAddition
@@ -5141,7 +5881,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
               : "")
         : "Browser judge is not available for this challenge.";
       inputC.placeholder = canRun
-        ? (isAttention ? "1.0, 2.0, 3.0, 4.0" : "")
+        ? (isAlibiAttention
+          ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0"
+          : isCausalAttention || isSlidingAttention
+          ? "2.0, 1.0, 0.0, 3.0, 4.0, 5.0"
+          : isAttention
+            ? "1.0, 2.0, 3.0, 4.0"
+            : "")
         : "Browser judge is not available for this challenge.";
 
       inputA.disabled = !canRun;
@@ -5310,7 +6056,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         vector.textContent = "gray = [ waiting for a run ]";
       } else if (problem.kind === "merge-sorted" || problem.kind === "parallel-merge") {
         vector.textContent = "C = [ waiting for a run ]";
-      } else if (problem.kind === "softmax-attention" || problem.kind === "multi-head-attention") {
+      } else if (
+        problem.kind === "softmax-attention" ||
+        problem.kind === "multi-head-attention" ||
+        problem.kind === "attention-with-linear-biases" ||
+        problem.kind === "causal-self-attention" ||
+        problem.kind === "sliding-window-attention"
+      ) {
         vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "matrix-power" || problem.kind === "all-pairs-shortest-paths") {
         vector.textContent = "output = [ waiting for a run ]";
@@ -5328,6 +6080,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "reduction" ||
         problem.kind === "dot-product" ||
         problem.kind === "mse" ||
+        problem.kind === "cross-entropy-loss" ||
+        problem.kind === "monte-carlo-integration" ||
         problem.kind === "count-array" ||
         problem.kind === "count-array-2d" ||
         problem.kind === "count-array-3d" ||
@@ -5336,6 +6090,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "max-subarray-sum"
       ) {
         vector.textContent = "output[0] = [ waiting for a run ]";
+      } else if (
+        problem.kind === "rms-normalization" ||
+        problem.kind === "value-clipping"
+      ) {
+        vector.textContent = "output = [ waiting for a run ]";
       } else {
         vector.textContent = "C = [ waiting for a run ]";
       }
@@ -6067,6 +6826,43 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       );
     }
 
+    function renderCrossEntropyResults(logits, labels, rowsN, colsC, output) {
+      const expected = buildCrossEntropyExpected(logits, labels, rowsN, colsC);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "loss[0]",
+        `<strong>Cross Entropy</strong>actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Shape: ${rowsN} x ${colsC}`],
+        1e-3
+      );
+    }
+
+    function renderMonteCarloResults(samples, lowerBound, upperBound, output) {
+      const expected = buildMonteCarloExpected(samples, lowerBound, upperBound);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "result[0]",
+        `<strong>Monte Carlo</strong>a=${formatNumber(lowerBound)}, b=${formatNumber(upperBound)}, actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Samples: ${samples.length}`],
+        1e-3
+      );
+    }
+
+    function renderRmsNormalizationResults(inputA, gamma, beta, output) {
+      const expected = buildRmsNormalizationExpected(inputA, gamma, beta);
+      renderSimpleVectorJudgeResults(
+        output,
+        expected,
+        "output",
+        [`N: ${inputA.length}`, `gamma: ${formatNumber(gamma)}`, `beta: ${formatNumber(beta)}`],
+        1e-4
+      );
+    }
+
     function renderTopKResults(inputA, k, output) {
       const expected = buildTopKExpected(inputA, k);
       renderSimpleVectorJudgeResults(output, expected, "output", [`N: ${inputA.length}`, `k: ${k}`], 1e-4);
@@ -6196,6 +6992,131 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
         list.appendChild(item);
       }
+    }
+
+    function renderCausalSelfAttentionResults(inputQ, inputK, inputV, rowsM, featureD, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildCausalSelfAttentionExpected(inputQ, inputK, inputV, rowsM, featureD);
+      const allMatch = arraysAlmostEqual(output, expected, 1e-4);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${rowsM} x ${featureD}`;
+
+      const reference = document.createElement("span");
+      reference.className = "pill";
+      reference.textContent = "Reference: CPU causal attention";
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(reference);
+
+      vector.textContent = `output = ${formatMatrixMultiline(output, rowsM, featureD)}`;
+
+      const actualRows = buildMatrixRows(output, rowsM, featureD);
+      const expectedRows = buildMatrixRows(expected, rowsM, featureD);
+      for (let row = 0; row < rowsM; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderAlibiAttentionResults(inputQ, inputK, inputV, rowsM, sharedN, featureD, alpha, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildAlibiAttentionExpected(inputQ, inputK, inputV, rowsM, sharedN, featureD, alpha);
+      const allMatch = arraysAlmostEqual(output, expected, 1e-4);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${rowsM} x ${featureD}`;
+
+      const alphaBadge = document.createElement("span");
+      alphaBadge.className = "pill";
+      alphaBadge.textContent = `alpha: ${formatNumber(alpha)}`;
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(alphaBadge);
+
+      vector.textContent = `output = ${formatMatrixMultiline(output, rowsM, featureD)}`;
+
+      const actualRows = buildMatrixRows(output, rowsM, featureD);
+      const expectedRows = buildMatrixRows(expected, rowsM, featureD);
+      for (let row = 0; row < rowsM; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderSlidingWindowAttentionResults(inputQ, inputK, inputV, rowsM, featureD, windowSize, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildSlidingWindowAttentionExpected(inputQ, inputK, inputV, rowsM, featureD, windowSize);
+      const allMatch = arraysAlmostEqual(output, expected, 1e-4);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${rowsM} x ${featureD}`;
+
+      const windowBadge = document.createElement("span");
+      windowBadge.className = "pill";
+      windowBadge.textContent = `Window: ${windowSize}`;
+
+      summary.appendChild(status);
+      summary.appendChild(shape);
+      summary.appendChild(windowBadge);
+
+      vector.textContent = `output = ${formatMatrixMultiline(output, rowsM, featureD)}`;
+
+      const actualRows = buildMatrixRows(output, rowsM, featureD);
+      const expectedRows = buildMatrixRows(expected, rowsM, featureD);
+      for (let row = 0; row < rowsM; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderValueClippingResults(inputA, lowerBound, upperBound, output) {
+      const expected = buildValueClippingExpected(inputA, lowerBound, upperBound);
+      renderSimpleVectorJudgeResults(
+        output,
+        expected,
+        "output",
+        [`N: ${inputA.length}`, `lo: ${formatNumber(lowerBound)}`, `hi: ${formatNumber(upperBound)}`],
+        1e-4
+      );
     }
 
     function renderMatrixPowerResults(inputA, matrixSize, power, output) {
@@ -7030,6 +7951,129 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
     }
 
+    function runCrossEntropy() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsN = parsePositiveInt(document.getElementById("matrix-m").value);
+      const colsC = parsePositiveInt(document.getElementById("matrix-n").value);
+      if (rowsN === null || colsC === null) {
+        pushLog("N and C must both be positive integers.", "stderr");
+        return;
+      }
+
+      const logits = parseFloatList(document.getElementById("input-a").value);
+      const labels = parseIntList(document.getElementById("input-b").value);
+      if (labels === null) {
+        pushLog("Labels must be a valid integer list.", "stderr");
+        return;
+      }
+
+      if (logits.length !== rowsN * colsC) {
+        pushLog("Logits length does not match N x C.", "stderr");
+        return;
+      }
+
+      if (labels.length !== rowsN) {
+        pushLog("Label count must match N.", "stderr");
+        return;
+      }
+
+      if (labels.some((label) => label < 0 || label >= colsC)) {
+        pushLog("Each label must be in the range [0, C).", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const logitsBuffer = new Float32Array(logits);
+      const labelBuffer = new Int32Array(labels);
+      const logitsPtr = window.Module._malloc(logitsBuffer.byteLength);
+      const labelPtr = window.Module._malloc(labelBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(logitsBuffer, logitsPtr >> 2);
+        window.Module.HEAP32.set(labelBuffer, labelPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_cross_entropy",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number"],
+          [kernelName, logitsPtr, logits.length, labelPtr, labels.length, rowsN, colsC]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderCrossEntropyResults(logits, labels, rowsN, colsC, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(logitsPtr);
+        window.Module._free(labelPtr);
+      }
+    }
+
+    function runRmsNormalization() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const elementCount = parsePositiveInt(document.getElementById("matrix-m").value);
+      const gamma = parseFiniteFloat(document.getElementById("matrix-n").value);
+      const beta = parseFiniteFloat(document.getElementById("matrix-k").value);
+      if (elementCount === null || gamma === null || beta === null) {
+        pushLog("N must be a positive integer, and gamma/beta must both be valid floats.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length !== elementCount) {
+        pushLog("Input length does not match N.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputBuffer = new Float32Array(inputA);
+      const inputPtr = window.Module._malloc(inputBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputBuffer, inputPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_rms_normalization",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputPtr, inputA.length, gamma, beta]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderRmsNormalizationResults(inputA, gamma, beta, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputPtr);
+      }
+    }
+
     function runMatrixTranspose() {
       if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
         return;
@@ -7236,6 +8280,208 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         }
 
         renderSoftmaxAttentionResults(inputQ, inputK, inputV, rowsM, sharedN, featureD, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputQPtr);
+        window.Module._free(inputKPtr);
+        window.Module._free(inputVPtr);
+      }
+    }
+
+    function runAlibiAttention() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsM = parsePositiveInt(document.getElementById("matrix-m").value);
+      const sharedN = parsePositiveInt(document.getElementById("matrix-n").value);
+      const featureD = parsePositiveInt(document.getElementById("matrix-k").value);
+      const alpha = parseFiniteFloat(document.getElementById("matrix-l").value);
+
+      if (rowsM === null || sharedN === null || featureD === null || alpha === null) {
+        pushLog("M, N, and d must all be positive integers, and alpha must be a valid float.", "stderr");
+        return;
+      }
+
+      const inputQ = parseFloatList(document.getElementById("input-a").value);
+      const inputK = parseFloatList(document.getElementById("input-b").value);
+      const inputV = parseFloatList(document.getElementById("input-c").value);
+
+      if (inputQ.length !== rowsM * featureD) {
+        pushLog("Matrix Q length does not match M x d.", "stderr");
+        return;
+      }
+
+      if (inputK.length !== sharedN * featureD) {
+        pushLog("Matrix K length does not match N x d.", "stderr");
+        return;
+      }
+
+      if (inputV.length !== sharedN * featureD) {
+        pushLog("Matrix V length does not match N x d.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputQBuffer = new Float32Array(inputQ);
+      const inputKBuffer = new Float32Array(inputK);
+      const inputVBuffer = new Float32Array(inputV);
+      const inputQPtr = window.Module._malloc(inputQBuffer.byteLength);
+      const inputKPtr = window.Module._malloc(inputKBuffer.byteLength);
+      const inputVPtr = window.Module._malloc(inputVBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputQBuffer, inputQPtr >> 2);
+        window.Module.HEAPF32.set(inputKBuffer, inputKPtr >> 2);
+        window.Module.HEAPF32.set(inputVBuffer, inputVPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_alibi_attention",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputQPtr, inputQ.length, inputKPtr, inputK.length, inputVPtr, inputV.length, rowsM, sharedN, featureD, alpha]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderAlibiAttentionResults(inputQ, inputK, inputV, rowsM, sharedN, featureD, alpha, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputQPtr);
+        window.Module._free(inputKPtr);
+        window.Module._free(inputVPtr);
+      }
+    }
+
+    function runCausalSelfAttention() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsM = parsePositiveInt(document.getElementById("matrix-m").value);
+      const featureD = parsePositiveInt(document.getElementById("matrix-n").value);
+      if (rowsM === null || featureD === null) {
+        pushLog("M and d must both be positive integers.", "stderr");
+        return;
+      }
+
+      const inputQ = parseFloatList(document.getElementById("input-a").value);
+      const inputK = parseFloatList(document.getElementById("input-b").value);
+      const inputV = parseFloatList(document.getElementById("input-c").value);
+      const expectedLength = rowsM * featureD;
+
+      if (inputQ.length !== expectedLength || inputK.length !== expectedLength || inputV.length !== expectedLength) {
+        pushLog("Q, K, and V must each match M x d.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputQBuffer = new Float32Array(inputQ);
+      const inputKBuffer = new Float32Array(inputK);
+      const inputVBuffer = new Float32Array(inputV);
+      const inputQPtr = window.Module._malloc(inputQBuffer.byteLength);
+      const inputKPtr = window.Module._malloc(inputKBuffer.byteLength);
+      const inputVPtr = window.Module._malloc(inputVBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputQBuffer, inputQPtr >> 2);
+        window.Module.HEAPF32.set(inputKBuffer, inputKPtr >> 2);
+        window.Module.HEAPF32.set(inputVBuffer, inputVPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_causal_self_attention",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputQPtr, inputQ.length, inputKPtr, inputK.length, inputVPtr, inputV.length, rowsM, featureD]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderCausalSelfAttentionResults(inputQ, inputK, inputV, rowsM, featureD, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputQPtr);
+        window.Module._free(inputKPtr);
+        window.Module._free(inputVPtr);
+      }
+    }
+
+    function runSlidingWindowAttention() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsM = parsePositiveInt(document.getElementById("matrix-m").value);
+      const featureD = parsePositiveInt(document.getElementById("matrix-n").value);
+      const windowSize = parseInteger(document.getElementById("matrix-k").value);
+      if (rowsM === null || featureD === null || windowSize === null || windowSize < 0) {
+        pushLog("M and d must be positive integers, and window_size must be non-negative.", "stderr");
+        return;
+      }
+
+      const inputQ = parseFloatList(document.getElementById("input-a").value);
+      const inputK = parseFloatList(document.getElementById("input-b").value);
+      const inputV = parseFloatList(document.getElementById("input-c").value);
+      const expectedLength = rowsM * featureD;
+
+      if (inputQ.length !== expectedLength || inputK.length !== expectedLength || inputV.length !== expectedLength) {
+        pushLog("Q, K, and V must each match M x d.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputQBuffer = new Float32Array(inputQ);
+      const inputKBuffer = new Float32Array(inputK);
+      const inputVBuffer = new Float32Array(inputV);
+      const inputQPtr = window.Module._malloc(inputQBuffer.byteLength);
+      const inputKPtr = window.Module._malloc(inputKBuffer.byteLength);
+      const inputVPtr = window.Module._malloc(inputVBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputQBuffer, inputQPtr >> 2);
+        window.Module.HEAPF32.set(inputKBuffer, inputKPtr >> 2);
+        window.Module.HEAPF32.set(inputVBuffer, inputVPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_sliding_window_attention",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputQPtr, inputQ.length, inputKPtr, inputK.length, inputVPtr, inputV.length, rowsM, featureD, windowSize]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderSlidingWindowAttentionResults(inputQ, inputK, inputV, rowsM, featureD, windowSize, output);
         pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
       } finally {
         window.Module._free(inputQPtr);
@@ -7670,6 +8916,114 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       } finally {
         window.Module._free(inputAPtr);
         window.Module._free(inputBPtr);
+      }
+    }
+
+    function runMonteCarlo() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const lowerBound = parseFiniteFloat(document.getElementById("matrix-m").value);
+      const upperBound = parseFiniteFloat(document.getElementById("matrix-n").value);
+      if (lowerBound === null || upperBound === null) {
+        pushLog("Lower bound a and upper bound b must both be valid floats.", "stderr");
+        return;
+      }
+
+      const samples = parseFloatList(document.getElementById("input-a").value);
+      if (samples.length === 0) {
+        pushLog("Sample list must contain at least one float.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const sampleBuffer = new Float32Array(samples);
+      const samplePtr = window.Module._malloc(sampleBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(sampleBuffer, samplePtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_monte_carlo",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, samplePtr, samples.length, lowerBound, upperBound]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderMonteCarloResults(samples, lowerBound, upperBound, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(samplePtr);
+      }
+    }
+
+    function runValueClipping() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const elementCount = parsePositiveInt(document.getElementById("matrix-m").value);
+      const lowerBound = parseFiniteFloat(document.getElementById("matrix-n").value);
+      const upperBound = parseFiniteFloat(document.getElementById("matrix-k").value);
+      if (elementCount === null || lowerBound === null || upperBound === null) {
+        pushLog("N must be a positive integer, and lo/hi must both be valid floats.", "stderr");
+        return;
+      }
+
+      if (lowerBound > upperBound) {
+        pushLog("lo must be less than or equal to hi.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length !== elementCount) {
+        pushLog("Input length does not match N.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputBuffer = new Float32Array(inputA);
+      const inputPtr = window.Module._malloc(inputBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputBuffer, inputPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_value_clipping",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputPtr, inputA.length, lowerBound, upperBound]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderValueClippingResults(inputA, lowerBound, upperBound, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputPtr);
       }
     }
 
@@ -8358,8 +9712,38 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         return;
       }
 
+      if (problem.kind === "cross-entropy-loss") {
+        runCrossEntropy();
+        return;
+      }
+
+      if (problem.kind === "rms-normalization") {
+        runRmsNormalization();
+        return;
+      }
+
+      if (problem.kind === "monte-carlo-integration") {
+        runMonteCarlo();
+        return;
+      }
+
       if (problem.kind === "softmax-attention") {
         runSoftmaxAttention();
+        return;
+      }
+
+      if (problem.kind === "attention-with-linear-biases") {
+        runAlibiAttention();
+        return;
+      }
+
+      if (problem.kind === "causal-self-attention") {
+        runCausalSelfAttention();
+        return;
+      }
+
+      if (problem.kind === "sliding-window-attention") {
+        runSlidingWindowAttention();
         return;
       }
 
@@ -8460,6 +9844,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
       if (problem.kind === "merge-sorted" || problem.kind === "parallel-merge") {
         runMergeSorted();
+        return;
+      }
+
+      if (problem.kind === "value-clipping") {
+        runValueClipping();
         return;
       }
 

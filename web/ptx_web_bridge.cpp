@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -422,6 +423,167 @@ public:
 
                 lastResult_[outputIndex] = outputValue;
             }
+        }
+
+        return true;
+    }
+
+    bool runFp16GemmDemo(const std::string& kernelName,
+                         const float* inputA,
+                         int inputALen,
+                         const float* inputB,
+                         int inputBLen,
+                         const float* inputC,
+                         int inputCLen,
+                         int rowsM,
+                         int colsN,
+                         int sharedK,
+                         float alpha,
+                         float beta) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputA == nullptr || inputB == nullptr || inputC == nullptr) {
+            lastError_ = "Input buffers must not be null.";
+            return false;
+        }
+
+        if (rowsM <= 0 || colsN <= 0 || sharedK <= 0) {
+            lastError_ = "M, N, and K must all be positive integers.";
+            return false;
+        }
+
+        const size_t expectedALen =
+            static_cast<size_t>(rowsM) * static_cast<size_t>(sharedK);
+        const size_t expectedBLen =
+            static_cast<size_t>(sharedK) * static_cast<size_t>(colsN);
+        const size_t expectedCLen =
+            static_cast<size_t>(rowsM) * static_cast<size_t>(colsN);
+
+        if (static_cast<size_t>(inputALen) != expectedALen) {
+            lastError_ = "Matrix A does not match the provided M x K dimensions.";
+            return false;
+        }
+
+        if (static_cast<size_t>(inputBLen) != expectedBLen) {
+            lastError_ = "Matrix B does not match the provided K x N dimensions.";
+            return false;
+        }
+
+        if (static_cast<size_t>(inputCLen) != expectedCLen) {
+            lastError_ = "Matrix C does not match the provided M x N dimensions.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isThreePointerThreeIntTwoFloatSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u32, .u32, .u32, .f32, .f32), such as FP16 GEMM.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const std::vector<std::uint16_t> packedA = packFloatArrayToHalf(inputA, expectedALen);
+        const std::vector<std::uint16_t> packedB = packFloatArrayToHalf(inputB, expectedBLen);
+        const std::vector<std::uint16_t> packedC = packFloatArrayToHalf(inputC, expectedCLen);
+        const size_t inputABytes = expectedALen * sizeof(std::uint16_t);
+        const size_t inputBBytes = expectedBLen * sizeof(std::uint16_t);
+        const size_t inputCBytes = expectedCLen * sizeof(std::uint16_t);
+        const CUdeviceptr inputAPtr = vm->allocateMemory(inputABytes);
+        const CUdeviceptr inputBPtr = vm->allocateMemory(inputBBytes);
+        const CUdeviceptr inputCPtr = vm->allocateMemory(inputCBytes);
+
+        if (!vm->copyMemoryHtoD(inputAPtr, packedA.data(), inputABytes)) {
+            lastError_ = "Failed to copy Matrix A into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputBPtr, packedB.data(), inputBBytes)) {
+            lastError_ = "Failed to copy Matrix B into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputCPtr, packedC.data(), inputCBytes)) {
+            lastError_ = "Failed to initialize Matrix C in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputAPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({inputBPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({inputCPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({static_cast<CUdeviceptr>(rowsM), kernel->parameters[3].size, kernel->parameters[3].offset});
+        params.push_back({static_cast<CUdeviceptr>(colsN), kernel->parameters[4].size, kernel->parameters[4].offset});
+        params.push_back({static_cast<CUdeviceptr>(sharedK), kernel->parameters[5].size, kernel->parameters[5].offset});
+        params.push_back({packFloat32(alpha), kernel->parameters[6].size, kernel->parameters[6].offset});
+        params.push_back({packFloat32(beta), kernel->parameters[7].size, kernel->parameters[7].offset});
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        std::vector<std::uint16_t> outputHalf(expectedCLen, 0);
+        if (!vm->copyMemoryDtoH(outputHalf.data(), inputCPtr, inputCBytes)) {
+            lastError_ = "Kernel executed, but reading the FP16 GEMM output failed.";
+            return false;
+        }
+
+        lastResult_.assign(expectedCLen, 0.0f);
+        for (size_t i = 0; i < expectedCLen; ++i) {
+            lastResult_[i] = halfBitsToFloat(outputHalf[i]);
         }
 
         return true;
@@ -929,6 +1091,159 @@ public:
             lastError_ = "Kernel executed, but reading the batched matmul output failed.";
             lastResult_.clear();
             return false;
+        }
+
+        return true;
+    }
+
+    bool runFp16BatchedMatrixMultiplicationDemo(const std::string& kernelName,
+                                                const float* inputA,
+                                                int inputALen,
+                                                const float* inputB,
+                                                int inputBLen,
+                                                int batchSize,
+                                                int rowsM,
+                                                int sharedN,
+                                                int colsK) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputA == nullptr || inputB == nullptr) {
+            lastError_ = "Input buffers must not be null.";
+            return false;
+        }
+
+        if (batchSize <= 0 || rowsM <= 0 || sharedN <= 0 || colsK <= 0) {
+            lastError_ = "BATCH, M, N, and K must all be positive integers.";
+            return false;
+        }
+
+        const size_t expectedALen =
+            static_cast<size_t>(batchSize) * static_cast<size_t>(rowsM) * static_cast<size_t>(sharedN);
+        const size_t expectedBLen =
+            static_cast<size_t>(batchSize) * static_cast<size_t>(sharedN) * static_cast<size_t>(colsK);
+        const size_t outputLen =
+            static_cast<size_t>(batchSize) * static_cast<size_t>(rowsM) * static_cast<size_t>(colsK);
+
+        if (static_cast<size_t>(inputALen) != expectedALen) {
+            lastError_ = "Tensor A does not match the provided BATCH x M x N dimensions.";
+            return false;
+        }
+
+        if (static_cast<size_t>(inputBLen) != expectedBLen) {
+            lastError_ = "Tensor B does not match the provided BATCH x N x K dimensions.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isThreePointerFourIntSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u32, .u32, .u32, .u32), such as FP16 batched matrix multiplication.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const std::vector<std::uint16_t> packedA = packFloatArrayToHalf(inputA, expectedALen);
+        const std::vector<std::uint16_t> packedB = packFloatArrayToHalf(inputB, expectedBLen);
+        const size_t inputABytes = expectedALen * sizeof(std::uint16_t);
+        const size_t inputBBytes = expectedBLen * sizeof(std::uint16_t);
+        const size_t outputBytes = outputLen * sizeof(std::uint16_t);
+        const std::vector<std::uint16_t> zeroOutput(outputLen, floatToHalfBits(0.0f));
+        const CUdeviceptr inputAPtr = vm->allocateMemory(inputABytes);
+        const CUdeviceptr inputBPtr = vm->allocateMemory(inputBBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputAPtr, packedA.data(), inputABytes)) {
+            lastError_ = "Failed to copy Tensor A into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputBPtr, packedB.data(), inputBBytes)) {
+            lastError_ = "Failed to copy Tensor B into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize Tensor C in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputAPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({inputBPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({outputPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({static_cast<CUdeviceptr>(batchSize), kernel->parameters[3].size, kernel->parameters[3].offset});
+        params.push_back({static_cast<CUdeviceptr>(rowsM), kernel->parameters[4].size, kernel->parameters[4].offset});
+        params.push_back({static_cast<CUdeviceptr>(sharedN), kernel->parameters[5].size, kernel->parameters[5].offset});
+        params.push_back({static_cast<CUdeviceptr>(colsK), kernel->parameters[6].size, kernel->parameters[6].offset});
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        std::vector<std::uint16_t> outputHalf(outputLen, 0);
+        if (!vm->copyMemoryDtoH(outputHalf.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the FP16 batched matmul output failed.";
+            lastResult_.clear();
+            return false;
+        }
+
+        lastResult_.assign(outputLen, 0.0f);
+        for (size_t i = 0; i < outputLen; ++i) {
+            lastResult_[i] = halfBitsToFloat(outputHalf[i]);
         }
 
         return true;
@@ -5976,6 +6291,135 @@ public:
         return true;
     }
 
+    bool runFp16DotProductDemo(const std::string& kernelName,
+                               const float* inputA,
+                               int inputALen,
+                               const float* inputB,
+                               int inputBLen) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputA == nullptr || inputB == nullptr) {
+            lastError_ = "Input buffers must not be null.";
+            return false;
+        }
+
+        if (inputALen <= 0 || inputBLen <= 0) {
+            lastError_ = "Both input arrays must contain at least one float.";
+            return false;
+        }
+
+        if (inputALen != inputBLen) {
+            lastError_ = "Input A and Input B must have the same length.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isVectorAddSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u32), such as FP16 dot product.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t elementCount = static_cast<size_t>(inputALen);
+        const std::vector<std::uint16_t> packedA = packFloatArrayToHalf(inputA, elementCount);
+        const std::vector<std::uint16_t> packedB = packFloatArrayToHalf(inputB, elementCount);
+        const std::uint16_t zeroOutput = floatToHalfBits(0.0f);
+        const size_t inputBytes = elementCount * sizeof(std::uint16_t);
+        const size_t outputBytes = sizeof(std::uint16_t);
+        const CUdeviceptr inputAPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr inputBPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputAPtr, packedA.data(), inputBytes)) {
+            lastError_ = "Failed to copy Input A into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputBPtr, packedB.data(), inputBytes)) {
+            lastError_ = "Failed to copy Input B into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, &zeroOutput, outputBytes)) {
+            lastError_ = "Failed to initialize the output buffer in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputAPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({inputBPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({outputPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({static_cast<CUdeviceptr>(inputALen), kernel->parameters[3].size, kernel->parameters[3].offset});
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        std::uint16_t outputHalf = 0;
+        if (!vm->copyMemoryDtoH(&outputHalf, outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the FP16 dot product output failed.";
+            return false;
+        }
+
+        lastResult_.assign(1, halfBitsToFloat(outputHalf));
+        return true;
+    }
+
     bool runReverseArrayDemo(const std::string& kernelName,
                              float* input,
                              int inputLen) {
@@ -7147,6 +7591,142 @@ public:
         return true;
     }
 
+    bool runGpt2TransformerBlockDemo(const std::string& kernelName,
+                                     const float* inputX,
+                                     int inputXLen,
+                                     const float* weights,
+                                     int weightsLen,
+                                     int seqLen) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        constexpr int kModelDim = 768;
+        constexpr int kPackedWeightCount = 7087872;
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputX == nullptr || weights == nullptr) {
+            lastError_ = "Input and weight buffers must not be null.";
+            return false;
+        }
+
+        if (seqLen <= 0) {
+            lastError_ = "seq_len must be a positive integer.";
+            return false;
+        }
+
+        const size_t expectedInputLen = static_cast<size_t>(seqLen) * static_cast<size_t>(kModelDim);
+        if (static_cast<size_t>(inputXLen) != expectedInputLen) {
+            lastError_ = "Input X length does not match seq_len x 768.";
+            return false;
+        }
+
+        if (weightsLen != kPackedWeightCount) {
+            lastError_ = "Packed GPT-2 weights must contain exactly 7,087,872 floats.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isVectorAddSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u32), such as GPT-2 transformer block browser submissions.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = expectedInputLen * sizeof(float);
+        const size_t outputBytes = inputBytes;
+        const size_t weightBytes = static_cast<size_t>(weightsLen) * sizeof(float);
+        const std::vector<float> zeroOutput(expectedInputLen, 0.0f);
+        const CUdeviceptr inputXPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+        const CUdeviceptr weightPtr = vm->allocateMemory(weightBytes);
+
+        if (!vm->copyMemoryHtoD(inputXPtr, inputX, inputBytes)) {
+            lastError_ = "Failed to copy the GPT-2 input tensor into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the GPT-2 output tensor in VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(weightPtr, weights, weightBytes)) {
+            lastError_ = "Failed to copy the packed GPT-2 weights into VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputXPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({outputPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({weightPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({static_cast<CUdeviceptr>(seqLen), kernel->parameters[3].size, kernel->parameters[3].offset});
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(expectedInputLen, 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the GPT-2 block output failed.";
+            return false;
+        }
+
+        return true;
+    }
+
     int getResultCount() const {
         if (!lastResult_.empty()) {
             return static_cast<int>(lastResult_.size());
@@ -7382,6 +7962,26 @@ private:
                isScalar32BitInteger(kernel.parameters[4]) &&
                isScalar32BitInteger(kernel.parameters[5]) &&
                isScalar32BitInteger(kernel.parameters[6]);
+    }
+
+    bool isThreePointerThreeIntTwoFloatSignature(const PTXFunction& kernel) const {
+        if (kernel.parameters.size() != 8) {
+            return false;
+        }
+
+        return kernel.parameters[0].isPointer &&
+               kernel.parameters[1].isPointer &&
+               kernel.parameters[2].isPointer &&
+               !kernel.parameters[3].isPointer &&
+               !kernel.parameters[4].isPointer &&
+               !kernel.parameters[5].isPointer &&
+               !kernel.parameters[6].isPointer &&
+               !kernel.parameters[7].isPointer &&
+               isScalar32BitInteger(kernel.parameters[3]) &&
+               isScalar32BitInteger(kernel.parameters[4]) &&
+               isScalar32BitInteger(kernel.parameters[5]) &&
+               isScalar32BitFloat(kernel.parameters[6]) &&
+               isScalar32BitFloat(kernel.parameters[7]);
     }
 
     bool isThreePointerThreeIntSignature(const PTXFunction& kernel) const {
@@ -7651,6 +8251,99 @@ private:
         std::uint32_t bits = 0;
         std::memcpy(&bits, &value, sizeof(bits));
         return static_cast<CUdeviceptr>(bits);
+    }
+
+    std::uint16_t floatToHalfBits(float value) const {
+        std::uint32_t bits = 0;
+        std::memcpy(&bits, &value, sizeof(bits));
+
+        const std::uint32_t sign = (bits >> 16) & 0x8000u;
+        int exponent = static_cast<int>((bits >> 23) & 0xFFu) - 127 + 15;
+        std::uint32_t mantissa = bits & 0x007FFFFFu;
+
+        if (std::isnan(value)) {
+            return static_cast<std::uint16_t>(sign | 0x7E00u);
+        }
+
+        if (std::isinf(value)) {
+            return static_cast<std::uint16_t>(sign | 0x7C00u);
+        }
+
+        if (exponent <= 0) {
+            if (exponent < -10) {
+                return static_cast<std::uint16_t>(sign);
+            }
+
+            mantissa |= 0x00800000u;
+            const std::uint32_t shiftedMantissa =
+                mantissa >> static_cast<std::uint32_t>(1 - exponent);
+            const std::uint32_t rounded = (shiftedMantissa + 0x00001000u) >> 13;
+            return static_cast<std::uint16_t>(sign | rounded);
+        }
+
+        if (exponent >= 0x1F) {
+            return static_cast<std::uint16_t>(sign | 0x7C00u);
+        }
+
+        const std::uint32_t roundedMantissa = mantissa + 0x00001000u;
+        if (roundedMantissa & 0x00800000u) {
+            mantissa = 0;
+            exponent += 1;
+            if (exponent >= 0x1F) {
+                return static_cast<std::uint16_t>(sign | 0x7C00u);
+            }
+        } else {
+            mantissa = roundedMantissa;
+        }
+
+        return static_cast<std::uint16_t>(
+            sign |
+            (static_cast<std::uint32_t>(exponent) << 10) |
+            ((mantissa >> 13) & 0x03FFu));
+    }
+
+    float halfBitsToFloat(std::uint16_t bits) const {
+        const std::uint32_t sign = static_cast<std::uint32_t>(bits & 0x8000u) << 16;
+        const std::uint32_t exponent = (bits >> 10) & 0x1Fu;
+        const std::uint32_t mantissa = bits & 0x03FFu;
+        std::uint32_t resultBits = 0;
+
+        if (exponent == 0) {
+            if (mantissa == 0) {
+                resultBits = sign;
+            } else {
+                std::uint32_t normalizedMantissa = mantissa;
+                int shift = -1;
+                do {
+                    shift += 1;
+                    normalizedMantissa <<= 1;
+                } while ((normalizedMantissa & 0x0400u) == 0);
+
+                normalizedMantissa &= 0x03FFu;
+                const std::uint32_t adjustedExponent =
+                    static_cast<std::uint32_t>(127 - 15 - shift);
+                resultBits = sign |
+                             (adjustedExponent << 23) |
+                             (normalizedMantissa << 13);
+            }
+        } else if (exponent == 0x1Fu) {
+            resultBits = sign | 0x7F800000u | (mantissa << 13);
+        } else {
+            const std::uint32_t adjustedExponent = exponent + (127 - 15);
+            resultBits = sign | (adjustedExponent << 23) | (mantissa << 13);
+        }
+
+        float result = 0.0f;
+        std::memcpy(&result, &resultBits, sizeof(result));
+        return result;
+    }
+
+    std::vector<std::uint16_t> packFloatArrayToHalf(const float* input, size_t count) const {
+        std::vector<std::uint16_t> packed(count, 0);
+        for (size_t i = 0; i < count; ++i) {
+            packed[i] = floatToHalfBits(input[i]);
+        }
+        return packed;
     }
 
     std::string loadedPath_;
@@ -7928,6 +8621,22 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_merge_sorted(const char* kernelName,
         inputBLen) ? 1 : 0;
 }
 
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_gpt2_transformer_block(const char* kernelName,
+                                                          const float* inputX,
+                                                          int inputXLen,
+                                                          const float* weights,
+                                                          int weightsLen,
+                                                          int seqLen) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runGpt2TransformerBlockDemo(
+        chosenKernel,
+        inputX,
+        inputXLen,
+        weights,
+        weightsLen,
+        seqLen) ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE int ptxvm_run_matrix_multiplication(const char* kernelName,
                                                         const float* inputA,
                                                         int inputALen,
@@ -7946,6 +8655,34 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_matrix_multiplication(const char* kernelName,
         rowsM,
         sharedN,
         colsK) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_fp16_gemm(const char* kernelName,
+                                             const float* inputA,
+                                             int inputALen,
+                                             const float* inputB,
+                                             int inputBLen,
+                                             const float* inputC,
+                                             int inputCLen,
+                                             int rowsM,
+                                             int colsN,
+                                             int sharedK,
+                                             float alpha,
+                                             float beta) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runFp16GemmDemo(
+        chosenKernel,
+        inputA,
+        inputALen,
+        inputB,
+        inputBLen,
+        inputC,
+        inputCLen,
+        rowsM,
+        colsN,
+        sharedK,
+        alpha,
+        beta) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int ptxvm_run_int8_quantized_matmul(const char* kernelName,
@@ -8011,6 +8748,28 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_batched_matrix_multiplication(const char* ker
                                                                  int colsK) {
     const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
     return bridge().runBatchedMatrixMultiplicationDemo(
+        chosenKernel,
+        inputA,
+        inputALen,
+        inputB,
+        inputBLen,
+        batchSize,
+        rowsM,
+        sharedN,
+        colsK) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_fp16_batched_matrix_multiplication(const char* kernelName,
+                                                                      const float* inputA,
+                                                                      int inputALen,
+                                                                      const float* inputB,
+                                                                      int inputBLen,
+                                                                      int batchSize,
+                                                                      int rowsM,
+                                                                      int sharedN,
+                                                                      int colsK) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runFp16BatchedMatrixMultiplicationDemo(
         chosenKernel,
         inputA,
         inputALen,
@@ -8498,6 +9257,15 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_dot_product(const char* kernelName,
                                                 int inputBLen) {
     const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
     return bridge().runDotProductDemo(chosenKernel, inputA, inputALen, inputB, inputBLen) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_fp16_dot_product(const char* kernelName,
+                                                    const float* inputA,
+                                                    int inputALen,
+                                                    const float* inputB,
+                                                    int inputBLen) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runFp16DotProductDemo(chosenKernel, inputA, inputALen, inputB, inputBLen) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int ptxvm_run_prefix_sum(const char* kernelName,

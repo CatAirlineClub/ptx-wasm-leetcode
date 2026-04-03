@@ -2263,6 +2263,69 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
           }
         ]
       },
+      22: {
+        kind: "fp16-gemm",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with A, B, and C pointers plus 32-bit M, N, K scalars and float32 alpha, beta scalars. A is M x K, B is K x N, and C starts with the initial M x N matrix that must be updated in place to alpha * (A x B) + beta * C.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full FP16 GEMM directly inside solve. The browser judge quantizes A, B, and the initial C buffer to FP16 before execution and expects FP16 output in C.",
+        testcaseHint: "Paste row-major A, B, and initial C matrices, then provide M, N, K, alpha, and beta.",
+        testcaseHelp: "A length must equal M x K, B length must equal K x N, and initial C length must equal M x N. The browser judge compares the final C buffer against a CPU FP16 GEMM reference with FP32 accumulation and FP16 output rounding.",
+        resultTitle: "Output Matrix C",
+        resultSubtitle: "The final result must be written back into C as FP16 values after FP32 accumulation.",
+        signatureHint: `extern "C" __global__ void solve(const half* A, const half* B, half* C, int M, int N, int K, float alpha, float beta) {`,
+        editorStarterCode: `#include <cuda_fp16.h>
+#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const half* A,
+                                 const half* B,
+                                 half* C,
+                                 int M,
+                                 int N,
+                                 int K,
+                                 float alpha,
+                                 float beta) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int row = 0; row < M; row = row + 1) {
+            for (int col = 0; col < N; col = col + 1) {
+                float acc = 0.0f;
+                for (int k = 0; k < K; k = k + 1) {
+                    acc += __half2float(A[row * K + k]) * __half2float(B[k * N + col]);
+                }
+                float c0 = __half2float(C[row * N + col]);
+                C[row * N + col] = __float2half(alpha * acc + beta * c0);
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 2,
+            colsK: 2,
+            sharedN: 3,
+            alpha: 1.0,
+            beta: 0.0,
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            inputB: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            inputC: [1.0, 1.0, 1.0, 1.0],
+            expected: [22.0, 28.0, 49.0, 64.0]
+          },
+          {
+            label: "Example 2",
+            rowsM: 1,
+            colsK: 1,
+            sharedN: 2,
+            alpha: 2.0,
+            beta: 0.5,
+            inputA: [1.0, 2.0],
+            inputB: [3.0, 4.0],
+            inputC: [1.5],
+            expected: [22.75]
+          }
+        ]
+      },
       23: {
         kind: "leaky-relu",
         supportsRun: true,
@@ -3825,6 +3888,97 @@ extern "C" __global__ void solve(const float* Q,
           }
         ]
       },
+      57: {
+        kind: "fp16-batched-matrix-multiplication",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with A, B, and C pointers plus 32-bit BATCH, M, N, and K scalars. A is BATCH x M x N, B is BATCH x N x K, and the final FP16 output C must contain the batched row-major products.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full batched FP16 matmul directly inside solve. The browser judge quantizes A and B to FP16 before execution and expects FP16 output in C.",
+        testcaseHint: "Paste flat row-major A and B tensors, then provide BATCH, M, N, and K.",
+        testcaseHelp: "Input A length must equal BATCH x M x N and input B length must equal BATCH x N x K. The browser judge compares the final C tensor against a CPU FP16 batched matmul reference with FP32 accumulation and FP16 output rounding.",
+        resultTitle: "Output Tensor C",
+        resultSubtitle: "The final batched output must be stored in C as FP16 values.",
+        signatureHint: `extern "C" __global__ void solve(const half* A, const half* B, half* C, int BATCH, int M, int N, int K) {`,
+        editorStarterCode: `#include <cuda_fp16.h>
+#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const half* A,
+                                 const half* B,
+                                 half* C,
+                                 int BATCH,
+                                 int M,
+                                 int N,
+                                 int K) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int batch = 0; batch < BATCH; batch = batch + 1) {
+            int aBase = batch * M * N;
+            int bBase = batch * N * K;
+            int cBase = batch * M * K;
+            for (int row = 0; row < M; row = row + 1) {
+                for (int col = 0; col < K; col = col + 1) {
+                    float acc = 0.0f;
+                    for (int i = 0; i < N; i = i + 1) {
+                        acc += __half2float(A[aBase + row * N + i]) * __half2float(B[bBase + i * K + col]);
+                    }
+                    C[cBase + row * K + col] = __float2half(acc);
+                }
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            batchSize: 2,
+            rowsM: 2,
+            sharedN: 3,
+            colsK: 2,
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            inputB: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+            expected: [22.0, 28.0, 49.0, 64.0, 92.0, 68.0, 128.0, 95.0]
+          }
+        ]
+      },
+      58: {
+        kind: "fp16-dot-product",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with A, B, and output pointers plus one 32-bit N scalar. The inputs are quantized to FP16, accumulation should happen in FP32, and output[0] must be written back as FP16.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full FP16 dot product directly inside solve and stores the scalar result in output[0].",
+        testcaseHint: "Paste two comma-separated FP16 vectors with the same length.",
+        testcaseHelp: "Input A and B must have the same non-zero length. The browser judge compares output[0] against a CPU FP16 dot-product reference with FP32 accumulation and FP16 output rounding.",
+        resultTitle: "Dot Product Output",
+        resultSubtitle: "The final scalar result must be stored in output[0] as an FP16 value.",
+        signatureHint: `extern "C" __global__ void solve(const half* A, const half* B, half* output, int N) {`,
+        editorStarterCode: `#include <cuda_fp16.h>
+#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const half* A, const half* B, half* output, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        float acc = 0.0f;
+        for (int i = 0; i < N; i = i + 1) {
+            acc += __half2float(A[i]) * __half2float(B[i]);
+        }
+        output[0] = __float2half(acc);
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 2.0, 3.0, 4.0],
+            inputB: [5.0, 6.0, 7.0, 8.0],
+            expectedScalar: 70.0
+          },
+          {
+            label: "Example 2",
+            inputA: [0.5, 1.5, 2.5],
+            inputB: [2.0, 3.0, 4.0],
+            expectedScalar: 15.5
+          }
+        ]
+      },
       59: {
         kind: "sliding-window-attention",
         supportsRun: true,
@@ -4506,6 +4660,43 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             expected: [0.0, 5.0, 7.0, 6.0, 0.0, 2.0, 4.0, 9.0, 0.0]
           }
         ]
+      },
+      74: {
+        kind: "gpt2-transformer-block",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with x, output, and weights pointers plus one 32-bit seq_len scalar. The browser feeds a deterministic packed GPT-2 block weight buffer and compares the full output tensor against a CPU reference using the same hidden weights.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full GPT-2 decoder block directly inside solve. For browser compatibility, keep the implementation monolithic and write the final seq_len x 768 result into output.",
+        testcaseHint: "Provide seq_len and optionally paste a custom x tensor with seq_len x 768 floats. If Input A is empty, the browser uses a deterministic built-in x testcase. The packed weights are generated internally by the browser judge.",
+        testcaseHelp: "The browser judge uses GPT-2 124M block dimensions only: d_model=768, n_heads=12, ffn_dim=3072, epsilon=1e-5. seq_len must be between 1 and 4 for the browser judge, and the packed weight buffer is fixed and deterministic.",
+        resultTitle: "GPT-2 Block Output",
+        resultSubtitle: "The final result must be stored in output. The judge compares the full seq_len x 768 tensor against a CPU GPT-2 block reference with deterministic hidden weights.",
+        signatureHint: `extern "C" __global__ void solve(const float* x, float* output, const float* weights, int seq_len) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* x,
+                                 float* output,
+                                 const float* weights,
+                                 int seq_len) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        // Browser judge dimensions are fixed to the GPT-2 124M block:
+        // d_model = 768, n_heads = 12, head_dim = 64, ffn_dim = 3072.
+        // weights uses the packed layout documented in the statement.
+        // TODO: implement the full pre-norm GPT-2 block and write seq_len * 768 floats to output.
+        for (int i = 0; i < seq_len * 768; i = i + 1) {
+            output[i] = x[i];
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            seqLen: 2,
+            generatedInput: "deterministic"
+          }
+        ]
       }
     };
 
@@ -4519,6 +4710,28 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
     let barraModulePromise = null;
     let editorFocusEnabled = false;
     let cudaSourceEditor = null;
+
+    const GPT2_BLOCK_MODEL_DIM = 768;
+    const GPT2_BLOCK_HEADS = 12;
+    const GPT2_BLOCK_HEAD_DIM = 64;
+    const GPT2_BLOCK_FFN_DIM = 3072;
+    const GPT2_BLOCK_EPSILON = 1.0e-5;
+    const GPT2_BLOCK_WEIGHT_LAYOUT = {
+      ln1Gamma: 0,
+      ln1Beta: 768,
+      qkvWeight: 1536,
+      qkvBias: 1771008,
+      attnProjWeight: 1773312,
+      attnProjBias: 2363136,
+      ln2Gamma: 2363904,
+      ln2Beta: 2364672,
+      fcWeight: 2365440,
+      fcBias: 4724736,
+      projWeight: 4727808,
+      projBias: 7087104,
+      total: 7087872
+    };
+    let cachedGpt2BlockWeights = null;
 
     function getCurrentProblem() {
       return PROBLEMS[currentProblemIndex] || null;
@@ -5140,8 +5353,197 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       return Number.isFinite(value) ? value : null;
     }
 
+    function floatToHalfBits(value) {
+      const buffer = new ArrayBuffer(4);
+      const view = new DataView(buffer);
+      view.setFloat32(0, value, true);
+      const bits = view.getUint32(0, true);
+
+      const sign = (bits >> 16) & 0x8000;
+      let exponent = ((bits >> 23) & 0xff) - 127 + 15;
+      let mantissa = bits & 0x007fffff;
+
+      if (Number.isNaN(value)) {
+        return sign | 0x7e00;
+      }
+
+      if (!Number.isFinite(value)) {
+        return sign | 0x7c00;
+      }
+
+      if (exponent <= 0) {
+        if (exponent < -10) {
+          return sign;
+        }
+
+        mantissa |= 0x00800000;
+        const shiftedMantissa = mantissa >> (1 - exponent);
+        const rounded = (shiftedMantissa + 0x00001000) >> 13;
+        return sign | rounded;
+      }
+
+      if (exponent >= 0x1f) {
+        return sign | 0x7c00;
+      }
+
+      const roundedMantissa = mantissa + 0x00001000;
+      if (roundedMantissa & 0x00800000) {
+        mantissa = 0;
+        exponent += 1;
+        if (exponent >= 0x1f) {
+          return sign | 0x7c00;
+        }
+      } else {
+        mantissa = roundedMantissa;
+      }
+
+      return sign | (exponent << 10) | ((mantissa >> 13) & 0x03ff);
+    }
+
+    function halfBitsToFloat(bits) {
+      const sign = (bits & 0x8000) << 16;
+      const exponent = (bits >> 10) & 0x1f;
+      const mantissa = bits & 0x03ff;
+      let resultBits = 0;
+
+      if (exponent === 0) {
+        if (mantissa === 0) {
+          resultBits = sign;
+        } else {
+          let normalizedMantissa = mantissa;
+          let shift = -1;
+          do {
+            shift += 1;
+            normalizedMantissa <<= 1;
+          } while ((normalizedMantissa & 0x0400) === 0);
+
+          normalizedMantissa &= 0x03ff;
+          const adjustedExponent = 127 - 15 - shift;
+          resultBits = sign | (adjustedExponent << 23) | (normalizedMantissa << 13);
+        }
+      } else if (exponent === 0x1f) {
+        resultBits = sign | 0x7f800000 | (mantissa << 13);
+      } else {
+        const adjustedExponent = exponent + (127 - 15);
+        resultBits = sign | (adjustedExponent << 23) | (mantissa << 13);
+      }
+
+      const buffer = new ArrayBuffer(4);
+      const view = new DataView(buffer);
+      view.setUint32(0, resultBits, true);
+      return view.getFloat32(0, true);
+    }
+
+    function roundToHalfFloat(value) {
+      return halfBitsToFloat(floatToHalfBits(value));
+    }
+
+    function quantizeHalfArray(values) {
+      return values.map((value) => roundToHalfFloat(value));
+    }
+
     function buildVectorAddExpected(inputA, inputB) {
       return inputA.map((value, index) => value + inputB[index]);
+    }
+
+    function hashFloat01(index, seed = 0) {
+      let x = (index + 1 + seed) >>> 0;
+      x ^= x >>> 16;
+      x = Math.imul(x, 2246822519) >>> 0;
+      x ^= x >>> 13;
+      x = Math.imul(x, 3266489917) >>> 0;
+      x ^= x >>> 16;
+      return x / 4294967295;
+    }
+
+    function signedHashedValue(index, scale, seed = 0) {
+      return (hashFloat01(index, seed) * 2.0 - 1.0) * scale;
+    }
+
+    function buildDeterministicGpt2Input(seqLen) {
+      const total = seqLen * GPT2_BLOCK_MODEL_DIM;
+      const input = new Array(total);
+      for (let i = 0; i < total; i += 1) {
+        input[i] = signedHashedValue(i, 0.9, 17);
+      }
+      return input;
+    }
+
+    function getDeterministicGpt2Weights() {
+      if (cachedGpt2BlockWeights) {
+        return cachedGpt2BlockWeights;
+      }
+
+      const weights = new Float32Array(GPT2_BLOCK_WEIGHT_LAYOUT.total);
+
+      for (let i = 0; i < GPT2_BLOCK_MODEL_DIM; i += 1) {
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.ln1Gamma + i] = 1.0 + signedHashedValue(i, 0.02, 101);
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.ln1Beta + i] = signedHashedValue(i, 0.01, 102);
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.attnProjBias + i] = signedHashedValue(i, 0.01, 103);
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.ln2Gamma + i] = 1.0 + signedHashedValue(i, 0.02, 104);
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.ln2Beta + i] = signedHashedValue(i, 0.01, 105);
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.projBias + i] = signedHashedValue(i, 0.01, 106);
+      }
+
+      for (let i = 0; i < GPT2_BLOCK_MODEL_DIM * 3; i += 1) {
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.qkvBias + i] = signedHashedValue(i, 0.01, 107);
+      }
+
+      for (let i = 0; i < GPT2_BLOCK_FFN_DIM; i += 1) {
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.fcBias + i] = signedHashedValue(i, 0.01, 108);
+      }
+
+      const qkvWeightCount = GPT2_BLOCK_MODEL_DIM * GPT2_BLOCK_MODEL_DIM * 3;
+      for (let i = 0; i < qkvWeightCount; i += 1) {
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.qkvWeight + i] = signedHashedValue(i, 0.015, 109);
+      }
+
+      const attnProjWeightCount = GPT2_BLOCK_MODEL_DIM * GPT2_BLOCK_MODEL_DIM;
+      for (let i = 0; i < attnProjWeightCount; i += 1) {
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.attnProjWeight + i] = signedHashedValue(i, 0.015, 110);
+      }
+
+      const fcWeightCount = GPT2_BLOCK_MODEL_DIM * GPT2_BLOCK_FFN_DIM;
+      for (let i = 0; i < fcWeightCount; i += 1) {
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.fcWeight + i] = signedHashedValue(i, 0.012, 111);
+      }
+
+      const projWeightCount = GPT2_BLOCK_FFN_DIM * GPT2_BLOCK_MODEL_DIM;
+      for (let i = 0; i < projWeightCount; i += 1) {
+        weights[GPT2_BLOCK_WEIGHT_LAYOUT.projWeight + i] = signedHashedValue(i, 0.012, 112);
+      }
+
+      cachedGpt2BlockWeights = weights;
+      return cachedGpt2BlockWeights;
+    }
+
+    function layerNormRow(input, rowOffset, gamma, beta) {
+      const normalized = new Array(GPT2_BLOCK_MODEL_DIM);
+      let mean = 0.0;
+      for (let i = 0; i < GPT2_BLOCK_MODEL_DIM; i += 1) {
+        mean += input[rowOffset + i];
+      }
+      mean /= GPT2_BLOCK_MODEL_DIM;
+
+      let variance = 0.0;
+      for (let i = 0; i < GPT2_BLOCK_MODEL_DIM; i += 1) {
+        const delta = input[rowOffset + i] - mean;
+        variance += delta * delta;
+      }
+      variance /= GPT2_BLOCK_MODEL_DIM;
+
+      const invStd = 1.0 / Math.sqrt(variance + GPT2_BLOCK_EPSILON);
+      for (let i = 0; i < GPT2_BLOCK_MODEL_DIM; i += 1) {
+        normalized[i] = ((input[rowOffset + i] - mean) * invStd) * gamma[i] + beta[i];
+      }
+
+      return normalized;
+    }
+
+    function geluTanhApprox(value) {
+      const c1 = 0.7978845608028654;
+      const c2 = 0.044715;
+      return 0.5 * value * (1.0 + Math.tanh(c1 * (value + c2 * value * value * value)));
     }
 
     function buildSortingExpected(inputA) {
@@ -5158,6 +5560,26 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             acc += inputA[row * sharedN + i] * inputB[i * colsK + col];
           }
           result[row * colsK + col] = acc;
+        }
+      }
+
+      return result;
+    }
+
+    function buildFp16GemmExpected(inputA, inputB, inputC, rowsM, colsN, sharedK, alpha, beta) {
+      const halfA = quantizeHalfArray(inputA);
+      const halfB = quantizeHalfArray(inputB);
+      const halfC = quantizeHalfArray(inputC);
+      const result = new Array(rowsM * colsN).fill(0.0);
+
+      for (let row = 0; row < rowsM; row += 1) {
+        for (let col = 0; col < colsN; col += 1) {
+          let acc = 0.0;
+          for (let k = 0; k < sharedK; k += 1) {
+            acc += halfA[row * sharedK + k] * halfB[k * colsN + col];
+          }
+          const value = alpha * acc + beta * halfC[row * colsN + col];
+          result[row * colsN + col] = roundToHalfFloat(value);
         }
       }
 
@@ -5241,6 +5663,30 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
               acc += inputA[offsetA + row * sharedN + i] * inputB[offsetB + i * colsK + col];
             }
             result[offsetC + row * colsK + col] = acc;
+          }
+        }
+      }
+
+      return result;
+    }
+
+    function buildFp16BatchedMatMulExpected(inputA, inputB, batchSize, rowsM, sharedN, colsK) {
+      const halfA = quantizeHalfArray(inputA);
+      const halfB = quantizeHalfArray(inputB);
+      const result = new Array(batchSize * rowsM * colsK).fill(0.0);
+
+      for (let batch = 0; batch < batchSize; batch += 1) {
+        const offsetA = batch * rowsM * sharedN;
+        const offsetB = batch * sharedN * colsK;
+        const offsetC = batch * rowsM * colsK;
+
+        for (let row = 0; row < rowsM; row += 1) {
+          for (let col = 0; col < colsK; col += 1) {
+            let acc = 0.0;
+            for (let i = 0; i < sharedN; i += 1) {
+              acc += halfA[offsetA + row * sharedN + i] * halfB[offsetB + i * colsK + col];
+            }
+            result[offsetC + row * colsK + col] = roundToHalfFloat(acc);
           }
         }
       }
@@ -5671,6 +6117,16 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         sum += inputA[i] * inputB[i];
       }
       return sum;
+    }
+
+    function buildFp16DotProductExpected(inputA, inputB) {
+      const halfA = quantizeHalfArray(inputA);
+      const halfB = quantizeHalfArray(inputB);
+      let sum = 0.0;
+      for (let i = 0; i < halfA.length; i += 1) {
+        sum += halfA[i] * halfB[i];
+      }
+      return roundToHalfFloat(sum);
     }
 
     function buildCountArrayExpected(inputA, target) {
@@ -6366,6 +6822,114 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       return output;
     }
 
+    function buildGpt2TransformerBlockExpected(inputX, seqLen) {
+      const weights = getDeterministicGpt2Weights();
+      const output = new Array(seqLen * GPT2_BLOCK_MODEL_DIM).fill(0.0);
+
+      const ln1Gamma = weights.subarray(GPT2_BLOCK_WEIGHT_LAYOUT.ln1Gamma, GPT2_BLOCK_WEIGHT_LAYOUT.ln1Gamma + GPT2_BLOCK_MODEL_DIM);
+      const ln1Beta = weights.subarray(GPT2_BLOCK_WEIGHT_LAYOUT.ln1Beta, GPT2_BLOCK_WEIGHT_LAYOUT.ln1Beta + GPT2_BLOCK_MODEL_DIM);
+      const qkvBias = weights.subarray(GPT2_BLOCK_WEIGHT_LAYOUT.qkvBias, GPT2_BLOCK_WEIGHT_LAYOUT.qkvBias + GPT2_BLOCK_MODEL_DIM * 3);
+      const attnProjBias = weights.subarray(GPT2_BLOCK_WEIGHT_LAYOUT.attnProjBias, GPT2_BLOCK_WEIGHT_LAYOUT.attnProjBias + GPT2_BLOCK_MODEL_DIM);
+      const ln2Gamma = weights.subarray(GPT2_BLOCK_WEIGHT_LAYOUT.ln2Gamma, GPT2_BLOCK_WEIGHT_LAYOUT.ln2Gamma + GPT2_BLOCK_MODEL_DIM);
+      const ln2Beta = weights.subarray(GPT2_BLOCK_WEIGHT_LAYOUT.ln2Beta, GPT2_BLOCK_WEIGHT_LAYOUT.ln2Beta + GPT2_BLOCK_MODEL_DIM);
+      const fcBias = weights.subarray(GPT2_BLOCK_WEIGHT_LAYOUT.fcBias, GPT2_BLOCK_WEIGHT_LAYOUT.fcBias + GPT2_BLOCK_FFN_DIM);
+      const projBias = weights.subarray(GPT2_BLOCK_WEIGHT_LAYOUT.projBias, GPT2_BLOCK_WEIGHT_LAYOUT.projBias + GPT2_BLOCK_MODEL_DIM);
+
+      const q = new Array(seqLen * GPT2_BLOCK_MODEL_DIM).fill(0.0);
+      const k = new Array(seqLen * GPT2_BLOCK_MODEL_DIM).fill(0.0);
+      const v = new Array(seqLen * GPT2_BLOCK_MODEL_DIM).fill(0.0);
+      const attnConcat = new Array(seqLen * GPT2_BLOCK_MODEL_DIM).fill(0.0);
+      const residual1 = new Array(seqLen * GPT2_BLOCK_MODEL_DIM).fill(0.0);
+
+      for (let row = 0; row < seqLen; row += 1) {
+        const rowOffset = row * GPT2_BLOCK_MODEL_DIM;
+        const normalized = layerNormRow(inputX, rowOffset, ln1Gamma, ln1Beta);
+
+        for (let outCol = 0; outCol < GPT2_BLOCK_MODEL_DIM * 3; outCol += 1) {
+          let acc = qkvBias[outCol];
+          for (let i = 0; i < GPT2_BLOCK_MODEL_DIM; i += 1) {
+            acc += normalized[i] * weights[GPT2_BLOCK_WEIGHT_LAYOUT.qkvWeight + i * (GPT2_BLOCK_MODEL_DIM * 3) + outCol];
+          }
+
+          if (outCol < GPT2_BLOCK_MODEL_DIM) {
+            q[rowOffset + outCol] = acc;
+          } else if (outCol < GPT2_BLOCK_MODEL_DIM * 2) {
+            k[rowOffset + outCol - GPT2_BLOCK_MODEL_DIM] = acc;
+          } else {
+            v[rowOffset + outCol - GPT2_BLOCK_MODEL_DIM * 2] = acc;
+          }
+        }
+      }
+
+      const scale = 1.0 / Math.sqrt(GPT2_BLOCK_HEAD_DIM);
+      for (let row = 0; row < seqLen; row += 1) {
+        for (let head = 0; head < GPT2_BLOCK_HEADS; head += 1) {
+          const headOffset = head * GPT2_BLOCK_HEAD_DIM;
+          const scores = new Array(seqLen).fill(0.0);
+          let maxScore = -Infinity;
+
+          for (let keyRow = 0; keyRow < seqLen; keyRow += 1) {
+            let dot = 0.0;
+            for (let i = 0; i < GPT2_BLOCK_HEAD_DIM; i += 1) {
+              const idx = headOffset + i;
+              dot += q[row * GPT2_BLOCK_MODEL_DIM + idx] * k[keyRow * GPT2_BLOCK_MODEL_DIM + idx];
+            }
+            const score = dot * scale;
+            scores[keyRow] = score;
+            if (score > maxScore) {
+              maxScore = score;
+            }
+          }
+
+          const weightsExp = scores.map((score) => Math.exp(score - maxScore));
+          const denom = weightsExp.reduce((acc, value) => acc + value, 0.0);
+
+          for (let col = 0; col < GPT2_BLOCK_HEAD_DIM; col += 1) {
+            let acc = 0.0;
+            for (let keyRow = 0; keyRow < seqLen; keyRow += 1) {
+              acc += (weightsExp[keyRow] / denom) * v[keyRow * GPT2_BLOCK_MODEL_DIM + headOffset + col];
+            }
+            attnConcat[row * GPT2_BLOCK_MODEL_DIM + headOffset + col] = acc;
+          }
+        }
+      }
+
+      for (let row = 0; row < seqLen; row += 1) {
+        const rowOffset = row * GPT2_BLOCK_MODEL_DIM;
+        for (let outCol = 0; outCol < GPT2_BLOCK_MODEL_DIM; outCol += 1) {
+          let acc = attnProjBias[outCol];
+          for (let i = 0; i < GPT2_BLOCK_MODEL_DIM; i += 1) {
+            acc += attnConcat[rowOffset + i] * weights[GPT2_BLOCK_WEIGHT_LAYOUT.attnProjWeight + i * GPT2_BLOCK_MODEL_DIM + outCol];
+          }
+          residual1[rowOffset + outCol] = inputX[rowOffset + outCol] + acc;
+        }
+      }
+
+      for (let row = 0; row < seqLen; row += 1) {
+        const rowOffset = row * GPT2_BLOCK_MODEL_DIM;
+        const normalized = layerNormRow(residual1, rowOffset, ln2Gamma, ln2Beta);
+        const hidden = new Array(GPT2_BLOCK_FFN_DIM).fill(0.0);
+
+        for (let outCol = 0; outCol < GPT2_BLOCK_FFN_DIM; outCol += 1) {
+          let acc = fcBias[outCol];
+          for (let i = 0; i < GPT2_BLOCK_MODEL_DIM; i += 1) {
+            acc += normalized[i] * weights[GPT2_BLOCK_WEIGHT_LAYOUT.fcWeight + i * GPT2_BLOCK_FFN_DIM + outCol];
+          }
+          hidden[outCol] = geluTanhApprox(acc);
+        }
+
+        for (let outCol = 0; outCol < GPT2_BLOCK_MODEL_DIM; outCol += 1) {
+          let acc = projBias[outCol];
+          for (let i = 0; i < GPT2_BLOCK_FFN_DIM; i += 1) {
+            acc += hidden[i] * weights[GPT2_BLOCK_WEIGHT_LAYOUT.projWeight + i * GPT2_BLOCK_MODEL_DIM + outCol];
+          }
+          output[rowOffset + outCol] = residual1[rowOffset + outCol] + acc;
+        }
+      }
+
+      return output;
+    }
+
     function buildMultiHeadAttentionExpected(inputQ, inputK, inputV, sequenceN, modelD, numHeads) {
       const headDim = modelD / numHeads;
       const output = new Array(sequenceN * modelD).fill(0);
@@ -6588,6 +7152,24 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
 
       currentExampleIndex = index;
+      if (problem.kind === "gpt2-transformer-block") {
+        const seqLen = Number(example.seqLen) || 2;
+        document.getElementById("input-a").value = buildDeterministicGpt2Input(seqLen).join(", ");
+        document.getElementById("input-b").value = "";
+        document.getElementById("input-c").value = "";
+        document.getElementById("matrix-m").value = String(seqLen);
+        document.getElementById("matrix-n").value = "";
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+        if (pushMessage) {
+          pushLog(`Loaded ${example.label} into the testcase editor.`, "runtime");
+        }
+        renderEmptyState();
+        return;
+      }
+
       document.getElementById("input-a").value = example.inputA.join(", ");
       document.getElementById("input-b").value = Array.isArray(example.inputB) ? example.inputB.join(", ") : "";
       document.getElementById("input-c").value = Array.isArray(example.inputC) ? example.inputC.join(", ") : "";
@@ -6627,6 +7209,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         document.getElementById("matrix-l").value = "";
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "fp16-gemm") {
+        document.getElementById("matrix-m").value = String(example.rowsM);
+        document.getElementById("matrix-n").value = String(example.colsK);
+        document.getElementById("matrix-k").value = String(example.sharedN);
+        document.getElementById("matrix-l").value = String(example.alpha);
+        document.getElementById("matrix-p").value = String(example.beta);
+        document.getElementById("matrix-q").value = "";
       } else if (problem.kind === "matrix-multiplication" || problem.kind === "softmax-attention") {
         document.getElementById("matrix-m").value = String(example.rowsM);
         document.getElementById("matrix-n").value = String(example.sharedN);
@@ -6641,7 +7230,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         document.getElementById("matrix-l").value = String(example.zeroPointA);
         document.getElementById("matrix-p").value = String(example.zeroPointB);
         document.getElementById("matrix-q").value = String(example.zeroPointC);
-      } else if (problem.kind === "batched-matrix-multiplication") {
+      } else if (problem.kind === "batched-matrix-multiplication" || problem.kind === "fp16-batched-matrix-multiplication") {
         document.getElementById("matrix-m").value = String(example.batchSize);
         document.getElementById("matrix-n").value = String(example.rowsM);
         document.getElementById("matrix-k").value = String(example.sharedN);
@@ -7237,11 +7826,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
             <span class="vector-line">Output: C = ${formatVector(example.expected)}</span>
           `;
-        } else if (problem.kind === "dot-product") {
+        } else if (problem.kind === "dot-product" || problem.kind === "fp16-dot-product") {
           bodyHtml = `
             <span class="vector-line">Input:  A = ${formatVector(example.inputA)}</span>
             <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
-            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected ?? example.expectedScalar)}</span>
           `;
         } else if (problem.kind === "reduction") {
           bodyHtml = `
@@ -7386,7 +7975,15 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
             <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
           `;
-        } else if (problem.kind === "batched-matrix-multiplication") {
+        } else if (problem.kind === "fp16-gemm") {
+          bodyHtml = `
+            <span class="vector-line">Input:  A (${example.rowsM} x ${example.sharedN}) = ${formatMatrixInline(example.inputA, example.rowsM, example.sharedN)}</span>
+            <span class="vector-line">        B (${example.sharedN} x ${example.colsK}) = ${formatMatrixInline(example.inputB, example.sharedN, example.colsK)}</span>
+            <span class="vector-line">        C_init (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        alpha = ${formatNumber(example.alpha)}, beta = ${formatNumber(example.beta)}</span>
+            <span class="vector-line">Output: C (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
+          `;
+        } else if (problem.kind === "batched-matrix-multiplication" || problem.kind === "fp16-batched-matrix-multiplication") {
           bodyHtml = `
             <span class="vector-line">Input:  A (${example.batchSize} x ${example.rowsM} x ${example.sharedN}) = ${formatTensorInline(example.inputA, example.batchSize, example.rowsM, example.sharedN)}</span>
             <span class="vector-line">        B (${example.batchSize} x ${example.sharedN} x ${example.colsK}) = ${formatTensorInline(example.inputB, example.batchSize, example.sharedN, example.colsK)}</span>
@@ -7467,9 +8064,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "cross-entropy-loss" ||
         problem.kind === "sparse-matrix-vector-multiplication" ||
         problem.kind === "matrix-addition" ||
+        problem.kind === "fp16-gemm" ||
         problem.kind === "matrix-multiplication" ||
         problem.kind === "int8-quantized-matmul" ||
         problem.kind === "batched-matrix-multiplication" ||
+        problem.kind === "fp16-batched-matrix-multiplication" ||
         problem.kind === "multi-head-attention" ||
         problem.kind === "softmax-attention" ||
         problem.kind === "attention-with-linear-biases" ||
@@ -7479,6 +8078,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "sliding-window-attention" ||
         problem.kind === "weight-dequantization" ||
         problem.kind === "dot-product" ||
+        problem.kind === "fp16-dot-product" ||
         problem.kind === "mse" ||
         problem.kind === "interleave-arrays" ||
         problem.kind === "merge-sorted" ||
@@ -7497,6 +8097,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "max-pooling-2d" ||
         problem.kind === "batch-normalization" ||
         problem.kind === "subarray-sum-3d" ||
+        problem.kind === "fp16-gemm" ||
         isSoftmaxAttention ||
         isMultiHeadAttention ||
         isAlibiAttention ||
@@ -7517,9 +8118,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const isNearestNeighbor = problem.kind === "nearest-neighbor";
       const isBatchNormalization = problem.kind === "batch-normalization";
       const isMatrixAddition = problem.kind === "matrix-addition";
+      const isFp16Gemm = problem.kind === "fp16-gemm";
       const isMatrixMultiply = problem.kind === "matrix-multiplication";
       const isInt8QuantizedMatMul = problem.kind === "int8-quantized-matmul";
-      const isBatchedMatMul = problem.kind === "batched-matrix-multiplication";
+      const isFp16BatchedMatMul = problem.kind === "fp16-batched-matrix-multiplication";
+      const isBatchedMatMul = problem.kind === "batched-matrix-multiplication" || isFp16BatchedMatMul;
+      const isFp16DotProduct = problem.kind === "fp16-dot-product";
+      const isDotProduct = problem.kind === "dot-product" || isFp16DotProduct;
       const isTranspose = problem.kind === "matrix-transpose";
       const isMonteCarlo = problem.kind === "monte-carlo-integration";
       const isValueClipping = problem.kind === "value-clipping";
@@ -7544,6 +8149,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const isInterleave = problem.kind === "interleave-arrays";
       const isMergeSorted = problem.kind === "merge-sorted" || problem.kind === "parallel-merge";
       const isJacobi2D = problem.kind === "jacobi-2d";
+      const isGpt2TransformerBlock = problem.kind === "gpt2-transformer-block";
       const isRegressionVector =
         problem.kind === "ordinary-least-squares" ||
         problem.kind === "logistic-regression";
@@ -7551,6 +8157,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const isAttention =
         isSoftmaxAttention || isMultiHeadAttention || isAlibiAttention || isCausalAttention || isSlidingAttention;
       const showMatrixM =
+        isGpt2TransformerBlock ||
         isRegressionVector ||
         isFft ||
         isRainbowTable ||
@@ -7566,6 +8173,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isKMeans ||
         isMoeTopK ||
         isMatrixAddition ||
+        isFp16Gemm ||
         isMatrixMultiply ||
         isInt8QuantizedMatMul ||
         isBatchedMatMul ||
@@ -7598,6 +8206,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isRmsNormalization ||
         isKMeans ||
         isMoeTopK ||
+        isFp16Gemm ||
         isMatrixMultiply ||
         isInt8QuantizedMatMul ||
         isBatchedMatMul ||
@@ -7624,6 +8233,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isGaussianBlur ||
         isSparseMatVec ||
         isRmsNormalization ||
+        isFp16Gemm ||
         isMatrixMultiply ||
         isInt8QuantizedMatMul ||
         isBatchedMatMul ||
@@ -7643,6 +8253,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isCountArray3D ||
         isSubarraySum2D;
       const showMatrixL =
+        isFp16Gemm ||
         isConvolution3D ||
         isConvolution2D ||
         isGaussianBlur ||
@@ -7652,7 +8263,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isBfsShortestPath ||
         isCountArray3D ||
         isSubarraySum2D;
-      const showMatrixP = isConvolution3D || isSubarraySum2D || isBfsShortestPath || isInt8QuantizedMatMul;
+      const showMatrixP = isFp16Gemm || isConvolution3D || isSubarraySum2D || isBfsShortestPath || isInt8QuantizedMatMul;
       const showMatrixQ = isConvolution3D || isSubarraySum2D || isBfsShortestPath || isInt8QuantizedMatMul;
       const usesMatrixDims =
         showMatrixM ||
@@ -7695,7 +8306,9 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const sourceResetButton = document.getElementById("source-reset-button");
 
       document.getElementById("input-a-label").textContent =
-        problem.kind === "vector-add"
+        isGpt2TransformerBlock
+          ? "Input Embeddings X (row-major, optional)"
+          : problem.kind === "vector-add"
           ? "Vector A"
           : isRainbowTable
             ? "Input Numbers"
@@ -7707,6 +8320,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "Logits Matrix (row-major)"
           : isInt8QuantizedMatMul
             ? "Matrix A (row-major int8)"
+          : isFp16Gemm
+            ? "Matrix A (row-major)"
           : isRegressionVector
             ? "Feature Matrix X (row-major)"
           : problem.kind === "max-pooling-2d"
@@ -7777,6 +8392,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "Threshold p"
           : isInt8QuantizedMatMul
             ? "Matrix B (row-major int8)"
+          : isFp16Gemm
+            ? "Matrix B (row-major)"
           : isRegressionVector
             ? "Target Vector y"
           : problem.kind === "max-pooling-2d"
@@ -7817,11 +8434,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "Matrix B (row-major int8)"
           : isInterleave || isMergeSorted
             ? "Input B"
-          : problem.kind === "dot-product"
+          : isDotProduct
             ? "Vector B"
             : isTranspose
               ? "Unused"
-            : "Input B";
+              : "Input B";
       document.getElementById("input-c-label").textContent =
         problem.kind === "max-pooling-2d"
           ? "Pooling [kernel_size, stride, padding]"
@@ -7831,6 +8448,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
           ? "Seed [int]"
           : isInt8QuantizedMatMul
           ? "Scales [scale_A, scale_B, scale_C]"
+          : isFp16Gemm
+          ? "Initial Matrix C (row-major)"
           : isBatchNormalization
           ? "Beta"
           : isSubarraySum3D
@@ -7842,12 +8461,14 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             : "Input C";
 
       matrixMLabel.textContent =
-        isColorInversion ? "Width"
+        isGpt2TransformerBlock ? "seq_len"
+        : isColorInversion ? "Width"
         : isGrayscale ? "Width"
         : isRainbowTable ? "Rounds R"
         : isKMeans ? "Samples N"
         : isMoeTopK ? "Tokens M"
         : isInt8QuantizedMatMul ? "Rows M"
+        : isFp16Gemm ? "Rows M"
         : isRegressionVector ? "Samples N"
         : isFft ? "Signal N"
         : isMultiAgentSimulation ? "Agents N"
@@ -7883,6 +8504,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isKMeans ? "Clusters k"
         : isMoeTopK ? "Experts E"
         : isInt8QuantizedMatMul ? "Cols N"
+        : isFp16Gemm ? "Cols N"
         : isRegressionVector ? "Features D"
         : isConvolution3D ? "Input Rows"
         : isGaussianBlur ? "Input Cols"
@@ -7916,6 +8538,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isKMeans ? "Max Iter"
         : isMoeTopK ? "Top k"
         : isInt8QuantizedMatMul ? "Shared K"
+        : isFp16Gemm ? "Shared K"
         : isConvolution3D ? "Input Cols"
         : isGaussianBlur ? "Kernel Rows"
         : isConvolution2D ? "Kernel Rows"
@@ -7937,7 +8560,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isHistogramming ? "num_bins"
         : "Cols K";
       matrixLLabel.textContent =
-        isConvolution3D ? "Kernel Depth"
+        isFp16Gemm ? "alpha"
+        : isConvolution3D ? "Kernel Depth"
         : isGaussianBlur ? "Kernel Cols"
         : isConvolution2D ? "Kernel Cols"
         : isBatchedMatMul ? "Cols K"
@@ -7948,7 +8572,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isSubarraySum2D ? "End Row"
         : "Extra Dim";
       matrixPLabel.textContent =
-        isConvolution3D ? "Kernel Rows"
+        isFp16Gemm ? "beta"
+        : isConvolution3D ? "Kernel Rows"
         : isInt8QuantizedMatMul ? "Zero Point B"
         : isBfsShortestPath ? "End Row"
         : isSubarraySum2D ? "Start Col"
@@ -7973,6 +8598,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "1.0, 2.0, 3.0, 4.0, 4.0, 3.0, 2.0, 1.0"
           : isInt8QuantizedMatMul
             ? "1, 2, 3, 4"
+          : isFp16Gemm
+            ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
           : isRegressionVector
             ? "2.0, 1.0, 1.0, 2.0, 3.0, 3.0"
           : problem.kind === "max-pooling-2d"
@@ -8056,6 +8683,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "0.9"
           : isInt8QuantizedMatMul
             ? "5, 6, 7, 8"
+          : isFp16Gemm
+            ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
           : isRegressionVector
             ? "1.0, 1.0, 0.0"
           : problem.kind === "max-pooling-2d"
@@ -8111,6 +8740,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
           ? "42"
           : isInt8QuantizedMatMul
           ? "0.1, 0.2, 0.05"
+          : isFp16Gemm
+          ? "1.0, 1.0, 1.0, 1.0"
           : isBatchNormalization
           ? "0.0, 0.0"
           : isSubarraySum3D
@@ -8146,8 +8777,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       matrixL.disabled = !canRun || !showMatrixL;
       matrixP.disabled = !canRun || !showMatrixP;
       matrixQ.disabled = !canRun || !showMatrixQ;
-      matrixL.min = isInt8QuantizedMatMul ? "-128" : "1";
-      matrixP.min = isInt8QuantizedMatMul ? "-128" : "1";
+      matrixL.min = isInt8QuantizedMatMul ? "-128" : (isFp16Gemm ? "" : "1");
+      matrixP.min = isInt8QuantizedMatMul ? "-128" : (isFp16Gemm ? "" : "1");
       matrixQ.min = isInt8QuantizedMatMul ? "-128" : "1";
 
       fileInput.disabled = !canCompile;
@@ -8285,7 +8916,9 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
 
       summary.innerHTML = '<span class="pill">Waiting for a run</span>';
-      if (problem.kind === "multi-agent-simulation") {
+      if (problem.kind === "gpt2-transformer-block") {
+        vector.textContent = "output = [ waiting for a run ]";
+      } else if (problem.kind === "multi-agent-simulation") {
         vector.textContent = "agents_next = [ waiting for a run ]";
       } else if (problem.kind === "rainbow-table") {
         vector.textContent = "output = [ waiting for a run ]";
@@ -8301,7 +8934,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         vector.textContent = "y = [ waiting for a run ]";
       } else if (problem.kind === "matrix-transpose") {
         vector.textContent = "A^T = [ waiting for a run ]";
-      } else if (problem.kind === "batched-matrix-multiplication") {
+      } else if (problem.kind === "batched-matrix-multiplication" || problem.kind === "fp16-batched-matrix-multiplication") {
         vector.textContent = "C = [ waiting for a run ]";
       } else if (problem.kind === "color-inversion") {
         vector.textContent = "image = [ waiting for a run ]";
@@ -8345,6 +8978,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       } else if (
         problem.kind === "reduction" ||
         problem.kind === "dot-product" ||
+        problem.kind === "fp16-dot-product" ||
         problem.kind === "mse" ||
         problem.kind === "cross-entropy-loss" ||
         problem.kind === "monte-carlo-integration" ||
@@ -8441,6 +9075,19 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
         list.appendChild(item);
       }
+    }
+
+    function renderFp16GemmResults(inputA, inputB, inputC, rowsM, colsN, sharedK, alpha, beta, output) {
+      const expected = buildFp16GemmExpected(inputA, inputB, inputC, rowsM, colsN, sharedK, alpha, beta);
+      renderMatrixJudgeResults(
+        output,
+        expected,
+        rowsM,
+        colsN,
+        "C",
+        [`Shared K: ${sharedK}`, `alpha=${formatNumber(alpha)}`, `beta=${formatNumber(beta)}`],
+        1e-3
+      );
     }
 
     function renderInt8QuantizedMatMulResults(inputA, inputB, rowsM, colsN, sharedK, scaleA, scaleB, scaleC, zeroPointA, zeroPointB, zeroPointC, output) {
@@ -9081,6 +9728,19 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       list.appendChild(item);
     }
 
+    function renderFp16DotProductResults(inputA, inputB, output) {
+      const expected = buildFp16DotProductExpected(inputA, inputB);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "output[0]",
+        `<strong>FP16 Dot Product</strong>actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Elements: ${inputA.length}`],
+        1e-3
+      );
+    }
+
     function renderScalarJudgeResults(actual, expected, label, detailHtml, pills = [], tolerance = 1e-4) {
       const summary = document.getElementById("result-summary");
       const list = document.getElementById("result-list");
@@ -9229,6 +9889,46 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
       const actualBatches = buildTensorSlices(output, batchSize, rowsM, colsK);
       const expectedBatches = buildTensorSlices(expected, batchSize, rowsM, colsK);
+      for (let batch = 0; batch < batchSize; batch += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML =
+          `<strong>Batch ${batch}</strong>` +
+          `actual=${formatMatrixInline(actualBatches[batch], rowsM, colsK)}, ` +
+          `expected=${formatMatrixInline(expectedBatches[batch], rowsM, colsK)}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderFp16BatchedMatMulResults(inputA, inputB, batchSize, rowsM, sharedN, colsK, output) {
+      const expected = buildFp16BatchedMatMulExpected(inputA, inputB, batchSize, rowsM, sharedN, colsK);
+      const actualBatches = buildTensorSlices(output, batchSize, rowsM, colsK);
+      const expectedBatches = buildTensorSlices(expected, batchSize, rowsM, colsK);
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const allMatch = arraysAlmostEqual(output, expected, 1e-3);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+      summary.appendChild(status);
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${batchSize} x ${rowsM} x ${colsK}`;
+      summary.appendChild(shape);
+
+      const shared = document.createElement("span");
+      shared.className = "pill";
+      shared.textContent = `Shared N: ${sharedN}`;
+      summary.appendChild(shared);
+
+      vector.textContent = `C = ${formatTensorMultiline(output, batchSize, rowsM, colsK)}`;
+
       for (let batch = 0; batch < batchSize; batch += 1) {
         const item = document.createElement("li");
         item.className = "result-item";
@@ -9503,6 +10203,19 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
     function renderBatchNormalizationResults(inputA, gamma, beta, rowsN, colsC, eps, output) {
       const expected = buildBatchNormalizationExpected(inputA, gamma, beta, rowsN, colsC, eps);
       renderMatrixJudgeResults(output, expected, rowsN, colsC, "output", [`Shape: ${rowsN} x ${colsC}`, `eps: ${formatNumber(eps)}`], 1e-3);
+    }
+
+    function renderGpt2TransformerBlockResults(inputX, seqLen, output) {
+      const expected = buildGpt2TransformerBlockExpected(inputX, seqLen);
+      renderMatrixJudgeResults(
+        output,
+        expected,
+        seqLen,
+        GPT2_BLOCK_MODEL_DIM,
+        "output",
+        [`Shape: ${seqLen} x ${GPT2_BLOCK_MODEL_DIM}`, "Reference: CPU GPT-2 block", "Hidden deterministic weights"],
+        1e-2
+      );
     }
 
     function renderOlsResults(inputA, inputB, nSamples, nFeatures, output) {
@@ -10313,6 +11026,90 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
     }
 
+    function runFp16Gemm() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsM = parsePositiveInt(document.getElementById("matrix-m").value);
+      const colsN = parsePositiveInt(document.getElementById("matrix-n").value);
+      const sharedK = parsePositiveInt(document.getElementById("matrix-k").value);
+      const alpha = parseFiniteFloat(document.getElementById("matrix-l").value);
+      const beta = parseFiniteFloat(document.getElementById("matrix-p").value);
+
+      if (rowsM === null || colsN === null || sharedK === null || alpha === null || beta === null) {
+        pushLog("M, N, K must be positive integers, and alpha/beta must both be valid floats.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+      const inputC = parseFloatList(document.getElementById("input-c").value);
+
+      if (inputA.length !== rowsM * sharedK) {
+        pushLog("Matrix A length does not match M x K.", "stderr");
+        return;
+      }
+
+      if (inputB.length !== sharedK * colsN) {
+        pushLog("Matrix B length does not match K x N.", "stderr");
+        return;
+      }
+
+      if (inputC.length !== rowsM * colsN) {
+        pushLog("Initial Matrix C length does not match M x N.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputCBuffer = new Float32Array(inputC);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+      const inputCPtr = window.Module._malloc(inputCBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+        window.Module.HEAPF32.set(inputCBuffer, inputCPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_fp16_gemm",
+          "number",
+          [
+            "string", "number", "number",
+            "number", "number", "number", "number",
+            "number", "number", "number", "number", "number"
+          ],
+          [
+            kernelName, inputAPtr, inputA.length,
+            inputBPtr, inputB.length, inputCPtr, inputC.length,
+            rowsM, colsN, sharedK, alpha, beta
+          ]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderFp16GemmResults(inputA, inputB, inputC, rowsM, colsN, sharedK, alpha, beta, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+        window.Module._free(inputCPtr);
+      }
+    }
+
     function runInt8QuantizedMatMul() {
       if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
         return;
@@ -10610,6 +11407,71 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         }
 
         renderBatchedMatMulResults(inputA, inputB, batchSize, rowsM, sharedN, colsK, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+      }
+    }
+
+    function runFp16BatchedMatrixMultiplication() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const batchSize = parsePositiveInt(document.getElementById("matrix-m").value);
+      const rowsM = parsePositiveInt(document.getElementById("matrix-n").value);
+      const sharedN = parsePositiveInt(document.getElementById("matrix-k").value);
+      const colsK = parsePositiveInt(document.getElementById("matrix-l").value);
+
+      if (batchSize === null || rowsM === null || sharedN === null || colsK === null) {
+        pushLog("BATCH, M, N, and K must all be positive integers.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+
+      if (inputA.length !== batchSize * rowsM * sharedN) {
+        pushLog("Tensor A length does not match BATCH x M x N.", "stderr");
+        return;
+      }
+
+      if (inputB.length !== batchSize * sharedN * colsK) {
+        pushLog("Tensor B length does not match BATCH x N x K.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_fp16_batched_matrix_multiplication",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length, batchSize, rowsM, sharedN, colsK]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderFp16BatchedMatMulResults(inputA, inputB, batchSize, rowsM, sharedN, colsK, output);
         pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
       } finally {
         window.Module._free(inputAPtr);
@@ -11529,6 +12391,62 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
     }
 
+    function runGpt2TransformerBlock() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const seqLen = parsePositiveInt(document.getElementById("matrix-m").value);
+      if (seqLen === null || seqLen > 4) {
+        pushLog("seq_len must be a positive integer no larger than 4 for the browser judge.", "stderr");
+        return;
+      }
+
+      const parsedInput = parseFloatList(document.getElementById("input-a").value);
+      const inputX = parsedInput.length === 0 ? buildDeterministicGpt2Input(seqLen) : parsedInput;
+      const expectedLength = seqLen * GPT2_BLOCK_MODEL_DIM;
+      if (inputX.length !== expectedLength) {
+        pushLog("Input X length must match seq_len x 768.", "stderr");
+        return;
+      }
+
+      const weights = getDeterministicGpt2Weights();
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputBuffer = new Float32Array(inputX);
+      const inputPtr = window.Module._malloc(inputBuffer.byteLength);
+      const weightPtr = window.Module._malloc(weights.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputBuffer, inputPtr >> 2);
+        window.Module.HEAPF32.set(weights, weightPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_gpt2_transformer_block",
+          "number",
+          ["string", "number", "number", "number", "number", "number"],
+          [kernelName, inputPtr, inputX.length, weightPtr, weights.length, seqLen]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderGpt2TransformerBlockResults(inputX, seqLen, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputPtr);
+        window.Module._free(weightPtr);
+      }
+    }
+
     function runMatrixTranspose() {
       if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
         return;
@@ -12351,6 +13269,60 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         }
 
         renderDotProductResults(inputA, inputB, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+      }
+    }
+
+    function runFp16DotProduct() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+      if (inputA === null || inputB === null) {
+        pushLog("Both input arrays must contain at least one float.", "stderr");
+        return;
+      }
+
+      if (inputA.length !== inputB.length) {
+        pushLog("Input A and Input B must have the same length.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_fp16_dot_product",
+          "number",
+          ["string", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderFp16DotProductResults(inputA, inputB, output);
         pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
       } finally {
         window.Module._free(inputAPtr);
@@ -13516,6 +14488,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         return;
       }
 
+      if (problem.kind === "fp16-gemm") {
+        runFp16Gemm();
+        return;
+      }
+
       if (problem.kind === "rainbow-table") {
         runRainbowTable();
         return;
@@ -13528,6 +14505,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
       if (problem.kind === "batched-matrix-multiplication") {
         runBatchedMatrixMultiplication();
+        return;
+      }
+
+      if (problem.kind === "fp16-batched-matrix-multiplication") {
+        runFp16BatchedMatrixMultiplication();
         return;
       }
 
@@ -13593,6 +14575,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
       if (problem.kind === "rms-normalization") {
         runRmsNormalization();
+        return;
+      }
+
+      if (problem.kind === "gpt2-transformer-block") {
+        runGpt2TransformerBlock();
         return;
       }
 
@@ -13700,6 +14687,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
       if (problem.kind === "dot-product") {
         runDotProduct();
+        return;
+      }
+
+      if (problem.kind === "fp16-dot-product") {
+        runFp16DotProduct();
         return;
       }
 

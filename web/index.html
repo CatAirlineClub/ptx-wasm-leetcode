@@ -2515,6 +2515,78 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
           }
         ]
       },
+      33: {
+        kind: "ordinary-least-squares",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with X, y, and beta pointers plus 32-bit n_samples and n_features scalars. The final beta buffer must contain the regression coefficients.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the full beta vector directly in solve. The browser VM replays one kernel thread, so avoid host-side launches.",
+        testcaseHint: "Paste the row-major feature matrix X and target vector y, then provide n_samples and n_features.",
+        testcaseHelp: "Input X length must equal n_samples x n_features and y length must equal n_samples. The browser judge compares beta against a CPU OLS reference with 1e-2 absolute/relative tolerance.",
+        resultTitle: "OLS Coefficients",
+        resultSubtitle: "The final coefficient vector must be stored in beta.",
+        signatureHint: `extern "C" __global__ void solve(const float* X, const float* y, float* beta, int n_samples, int n_features) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* X,
+                                 const float* y,
+                                 float* beta,
+                                 int n_samples,
+                                 int n_features) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int j = 0; j < n_features; j = j + 1) {
+            beta[j] = 0.0f;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 5,
+            colsN: 3,
+            inputA: [-0.23, -0.23, 1.52, 0.77, -0.47, 1.58, -0.14, 0.65, 0.5, -1.91, -1.72, 0.24, -0.46, -0.47, 0.54],
+            inputB: [83.01, 93.4, 47.33, -62.22, 13.06],
+            expected: [13.97, 29.12, 61.05]
+          }
+        ]
+      },
+      34: {
+        kind: "logistic-regression",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with X, y, and beta pointers plus 32-bit n_samples and n_features scalars. The final beta buffer must contain the logistic-regression coefficients.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the full beta vector directly in solve. The browser VM replays one kernel thread, so avoid host-side launches.",
+        testcaseHint: "Paste the row-major feature matrix X and binary target vector y, then provide n_samples and n_features.",
+        testcaseHelp: "Input X length must equal n_samples x n_features, y length must equal n_samples, and every y value must be 0 or 1. The browser judge compares beta against a CPU logistic-regression reference with 1e-2 absolute/relative tolerance.",
+        resultTitle: "Logistic Coefficients",
+        resultSubtitle: "The final coefficient vector must be stored in beta.",
+        signatureHint: `extern "C" __global__ void solve(const float* X, const float* y, float* beta, int n_samples, int n_features) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* X,
+                                 const float* y,
+                                 float* beta,
+                                 int n_samples,
+                                 int n_features) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int j = 0; j < n_features; j = j + 1) {
+            beta[j] = 0.0f;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 8,
+            colsN: 2,
+            inputA: [2.0, 1.0, 1.0, 2.0, 3.0, 3.0, 1.5, 2.5, -1.0, -2.0, -2.0, -1.0, -1.5, -2.5, -3.0, -3.0],
+            inputB: [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            expected: [2.26, -1.29]
+          }
+        ]
+      },
       35: {
         kind: "monte-carlo-integration",
         supportsRun: true,
@@ -2702,6 +2774,43 @@ extern "C" __global__ void solve(const float* points, int* indices, int N) {
           }
         ]
       },
+      39: {
+        kind: "fast-fourier-transform",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with signal and spectrum pointers plus one 32-bit N scalar. Input and output use interleaved complex layout [real0, imag0, real1, imag1, ...].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the full spectrum buffer directly in solve. The browser VM replays one kernel thread, so avoid host-side launches.",
+        testcaseHint: "Paste the interleaved complex signal and provide N, where the input length must be 2 x N.",
+        testcaseHelp: "The browser judge compares the interleaved spectrum buffer against a CPU DFT reference with 1e-3 absolute/relative tolerance.",
+        resultTitle: "FFT Spectrum",
+        resultSubtitle: "The final interleaved complex spectrum must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* signal, float* spectrum, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* signal, float* spectrum, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int total = 2 * N;
+        for (int i = 0; i < total; i = i + 1) {
+            spectrum[i] = 0.0f;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            signalLength: 4,
+            inputA: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            expected: [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+          },
+          {
+            label: "Example 2",
+            signalLength: 2,
+            inputA: [1.0, 0.0, 1.0, 0.0],
+            expected: [2.0, 0.0, 0.0, 0.0]
+          }
+        ]
+      },
       40: {
         kind: "batch-normalization",
         supportsRun: true,
@@ -2767,6 +2876,55 @@ extern "C" __global__ void solve(const float* input,
             inputB: [2.0, 0.5],
             inputC: [1.0, -1.0],
             expected: [-0.99999, -1.5, 2.99999, -0.5]
+          }
+        ]
+      },
+      42: {
+        kind: "max-pooling-2d",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input and output pointers plus 32-bit N, C, H, W, kernel_size, stride, and padding scalars. The final output buffer must contain the pooled tensor in flattened N x C x H_out x W_out order.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that writes the full pooled output directly in solve. The browser VM replays one kernel thread, so avoid host-side launches.",
+        testcaseHint: "Paste the flattened input tensor in Input A, dimensions [N, C, H, W] in Input B, and pooling parameters [kernel_size, stride, padding] in Input C.",
+        testcaseHelp: "Input A length must equal N x C x H x W. Input B must contain four integers and Input C must contain three integers. The browser judge compares the flattened output buffer against a CPU max-pooling reference.",
+        resultTitle: "Max Pooling Output",
+        resultSubtitle: "The final pooled tensor must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, float* output, int N, int C, int H, int W, int kernel_size, int stride, int padding) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* input,
+                                 float* output,
+                                 int N,
+                                 int C,
+                                 int H,
+                                 int W,
+                                 int kernel_size,
+                                 int stride,
+                                 int padding) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int outH = (H + 2 * padding - kernel_size) / stride + 1;
+        int outW = (W + 2 * padding - kernel_size) / stride + 1;
+        int total = N * C * outH * outW;
+        for (int i = 0; i < total; i = i + 1) {
+            output[i] = 0.0f;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            inputB: [1, 1, 3, 3],
+            inputC: [2, 1, 0],
+            expected: [5.0, 6.0, 8.0, 9.0]
+          },
+          {
+            label: "Example 2",
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0],
+            inputB: [1, 1, 5, 5],
+            inputC: [3, 1, 1],
+            expected: [7.0, 8.0, 9.0, 10.0, 10.0, 12.0, 13.0, 14.0, 15.0, 15.0, 17.0, 18.0, 19.0, 20.0, 20.0, 22.0, 23.0, 24.0, 25.0, 25.0, 22.0, 23.0, 24.0, 25.0, 25.0]
           }
         ]
       },
@@ -4487,6 +4645,19 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       return `[${values.map((value) => formatNumber(value)).join(", ")}]`;
     }
 
+    function formatComplex(real, imag) {
+      const imagMagnitude = Math.abs(imag);
+      return `${formatNumber(real)} ${imag < 0 ? "-" : "+"} ${formatNumber(imagMagnitude)}i`;
+    }
+
+    function formatComplexVector(values) {
+      const parts = [];
+      for (let i = 0; i + 1 < values.length; i += 2) {
+        parts.push(formatComplex(values[i], values[i + 1]));
+      }
+      return `[${parts.join(", ")}]`;
+    }
+
     function buildMatrixRows(values, rows, cols) {
       const matrixRows = [];
       for (let row = 0; row < rows; row += 1) {
@@ -5442,6 +5613,182 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       return inputA.map((value) => Math.min(upperBound, Math.max(lowerBound, value)));
     }
 
+    function solveLinearSystem(matrix, rhs) {
+      const size = matrix.length;
+      const augmented = matrix.map((row, index) => [...row, rhs[index]]);
+
+      for (let col = 0; col < size; col += 1) {
+        let pivotRow = col;
+        let pivotValue = Math.abs(augmented[col][col]);
+        for (let row = col + 1; row < size; row += 1) {
+          const candidate = Math.abs(augmented[row][col]);
+          if (candidate > pivotValue) {
+            pivotValue = candidate;
+            pivotRow = row;
+          }
+        }
+
+        if (pivotValue <= 1e-12) {
+          return null;
+        }
+
+        if (pivotRow !== col) {
+          const temp = augmented[col];
+          augmented[col] = augmented[pivotRow];
+          augmented[pivotRow] = temp;
+        }
+
+        const pivot = augmented[col][col];
+        for (let j = col; j <= size; j += 1) {
+          augmented[col][j] /= pivot;
+        }
+
+        for (let row = 0; row < size; row += 1) {
+          if (row === col) {
+            continue;
+          }
+
+          const factor = augmented[row][col];
+          if (factor === 0) {
+            continue;
+          }
+
+          for (let j = col; j <= size; j += 1) {
+            augmented[row][j] -= factor * augmented[col][j];
+          }
+        }
+      }
+
+      return augmented.map((row) => row[size]);
+    }
+
+    function buildOlsExpected(X, y, nSamples, nFeatures) {
+      const xtx = Array.from({ length: nFeatures }, () => new Array(nFeatures).fill(0.0));
+      const xty = new Array(nFeatures).fill(0.0);
+
+      for (let sample = 0; sample < nSamples; sample += 1) {
+        const rowOffset = sample * nFeatures;
+        for (let i = 0; i < nFeatures; i += 1) {
+          const xi = X[rowOffset + i];
+          xty[i] += xi * y[sample];
+          for (let j = 0; j < nFeatures; j += 1) {
+            xtx[i][j] += xi * X[rowOffset + j];
+          }
+        }
+      }
+
+      return solveLinearSystem(xtx, xty) ?? new Array(nFeatures).fill(Number.NaN);
+    }
+
+    function buildLogisticRegressionExpected(X, y, nSamples, nFeatures) {
+      const beta = new Array(nFeatures).fill(0.0);
+
+      for (let iteration = 0; iteration < 60; iteration += 1) {
+        const gradient = new Array(nFeatures).fill(0.0);
+        const hessian = Array.from({ length: nFeatures }, () => new Array(nFeatures).fill(0.0));
+
+        for (let sample = 0; sample < nSamples; sample += 1) {
+          const rowOffset = sample * nFeatures;
+          let score = 0.0;
+          for (let feature = 0; feature < nFeatures; feature += 1) {
+            score += X[rowOffset + feature] * beta[feature];
+          }
+
+          const clippedScore = Math.max(-60.0, Math.min(60.0, score));
+          const probability = 1.0 / (1.0 + Math.exp(-clippedScore));
+          const weight = probability * (1.0 - probability);
+
+          for (let i = 0; i < nFeatures; i += 1) {
+            const xi = X[rowOffset + i];
+            gradient[i] += xi * (y[sample] - probability);
+            for (let j = 0; j < nFeatures; j += 1) {
+              hessian[i][j] += xi * X[rowOffset + j] * weight;
+            }
+          }
+        }
+
+        let delta = solveLinearSystem(hessian, gradient);
+        if (!delta) {
+          const damped = hessian.map((row, rowIndex) =>
+            row.map((value, colIndex) => value + (rowIndex === colIndex ? 1e-6 : 0.0)));
+          delta = solveLinearSystem(damped, gradient);
+        }
+
+        if (!delta) {
+          break;
+        }
+
+        let maxStep = 0.0;
+        for (let i = 0; i < nFeatures; i += 1) {
+          beta[i] += delta[i];
+          maxStep = Math.max(maxStep, Math.abs(delta[i]));
+        }
+
+        if (maxStep <= 1e-7) {
+          break;
+        }
+      }
+
+      return beta;
+    }
+
+    function buildFftExpected(signal, signalLength) {
+      const spectrum = new Array(signalLength * 2).fill(0.0);
+      for (let k = 0; k < signalLength; k += 1) {
+        let sumReal = 0.0;
+        let sumImag = 0.0;
+
+        for (let n = 0; n < signalLength; n += 1) {
+          const inputReal = signal[n * 2];
+          const inputImag = signal[n * 2 + 1];
+          const angle = (-2.0 * Math.PI * k * n) / signalLength;
+          const twiddleReal = Math.cos(angle);
+          const twiddleImag = Math.sin(angle);
+
+          sumReal += inputReal * twiddleReal - inputImag * twiddleImag;
+          sumImag += inputReal * twiddleImag + inputImag * twiddleReal;
+        }
+
+        spectrum[k * 2] = sumReal;
+        spectrum[k * 2 + 1] = sumImag;
+      }
+
+      return spectrum;
+    }
+
+    function buildMaxPooling2DExpected(input, batchSize, channelCount, height, width, kernelSize, stride, padding) {
+      const outputHeight = Math.floor((height + 2 * padding - kernelSize) / stride) + 1;
+      const outputWidth = Math.floor((width + 2 * padding - kernelSize) / stride) + 1;
+      const output = new Array(batchSize * channelCount * outputHeight * outputWidth).fill(0.0);
+
+      for (let n = 0; n < batchSize; n += 1) {
+        for (let c = 0; c < channelCount; c += 1) {
+          for (let outRow = 0; outRow < outputHeight; outRow += 1) {
+            for (let outCol = 0; outCol < outputWidth; outCol += 1) {
+              let best = -Infinity;
+              for (let kernelRow = 0; kernelRow < kernelSize; kernelRow += 1) {
+                for (let kernelCol = 0; kernelCol < kernelSize; kernelCol += 1) {
+                  const inRow = outRow * stride + kernelRow - padding;
+                  const inCol = outCol * stride + kernelCol - padding;
+                  if (inRow < 0 || inRow >= height || inCol < 0 || inCol >= width) {
+                    continue;
+                  }
+
+                  const inputIndex = (((n * channelCount + c) * height + inRow) * width) + inCol;
+                  best = Math.max(best, input[inputIndex]);
+                }
+              }
+
+              const outputIndex = (((n * channelCount + c) * outputHeight + outRow) * outputWidth) + outCol;
+              output[outputIndex] = best;
+            }
+          }
+        }
+      }
+
+      return output;
+    }
+
     function buildRotaryEmbeddingExpected(inputQ, cos, sin, rowsM, featureD) {
       const output = new Array(rowsM * featureD).fill(0.0);
       const half = featureD / 2;
@@ -5525,9 +5872,28 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       return output;
     }
 
+    function valuesAlmostEqual(actual, expected, absTolerance = 1e-4, relTolerance = 0.0) {
+      if (!Number.isFinite(actual) || !Number.isFinite(expected)) {
+        return false;
+      }
+
+      const diff = Math.abs(actual - expected);
+      if (diff <= absTolerance) {
+        return true;
+      }
+
+      const scale = Math.max(1.0, Math.abs(actual), Math.abs(expected));
+      return diff <= relTolerance * scale;
+    }
+
     function arraysAlmostEqual(actual, expected, tolerance = 1e-4) {
       return actual.length === expected.length &&
         actual.every((value, index) => Math.abs(value - expected[index]) <= tolerance);
+    }
+
+    function arraysAlmostEqualWithTolerance(actual, expected, absTolerance = 1e-4, relTolerance = 0.0) {
+      return actual.length === expected.length &&
+        actual.every((value, index) => valuesAlmostEqual(value, expected[index], absTolerance, relTolerance));
     }
 
     function isNonDecreasing(values) {
@@ -5683,6 +6049,20 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
       if (problem.kind === "multi-agent-simulation") {
         document.getElementById("matrix-m").value = String(example.agentCount);
+        document.getElementById("matrix-n").value = "";
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "ordinary-least-squares" || problem.kind === "logistic-regression") {
+        document.getElementById("matrix-m").value = String(example.rowsM);
+        document.getElementById("matrix-n").value = String(example.colsN);
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "fast-fourier-transform") {
+        document.getElementById("matrix-m").value = String(example.signalLength);
         document.getElementById("matrix-n").value = "";
         document.getElementById("matrix-k").value = "";
         document.getElementById("matrix-l").value = "";
@@ -6306,10 +6686,34 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">        P = ${example.power}</span>
             <span class="vector-line">Output: A^P (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.expected, example.rows, example.cols)}</span>
           `;
+        } else if (problem.kind === "ordinary-least-squares") {
+          bodyHtml = `
+            <span class="vector-line">Input:  X (${example.rowsM} x ${example.colsN}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsN)}</span>
+            <span class="vector-line">        y = ${formatVector(example.inputB)}</span>
+            <span class="vector-line">Output: beta = ${formatVector(example.expected)}</span>
+          `;
+        } else if (problem.kind === "logistic-regression") {
+          bodyHtml = `
+            <span class="vector-line">Input:  X (${example.rowsM} x ${example.colsN}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsN)}</span>
+            <span class="vector-line">        y = ${formatVector(example.inputB)}</span>
+            <span class="vector-line">Output: beta = ${formatVector(example.expected)}</span>
+          `;
         } else if (problem.kind === "nearest-neighbor") {
           bodyHtml = `
             <span class="vector-line">Input:  points (N=${example.pointCount}) = ${formatVector(example.inputA)}</span>
             <span class="vector-line">Output: indices = [${example.expected.join(", ")}]</span>
+          `;
+        } else if (problem.kind === "fast-fourier-transform") {
+          bodyHtml = `
+            <span class="vector-line">Input:  N = ${example.signalLength}</span>
+            <span class="vector-line">        signal = ${formatComplexVector(example.inputA)}</span>
+            <span class="vector-line">Output: spectrum = ${formatComplexVector(example.expected)}</span>
+          `;
+        } else if (problem.kind === "max-pooling-2d") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">        dims = [${example.inputB.join(", ")}], pool = [${example.inputC.join(", ")}]</span>
+            <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
           `;
         } else if (problem.kind === "batch-normalization") {
           bodyHtml = `
@@ -6440,6 +6844,9 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
 
       const usesSecondInput =
+        problem.kind === "max-pooling-2d" ||
+        problem.kind === "ordinary-least-squares" ||
+        problem.kind === "logistic-regression" ||
         problem.kind === "batch-normalization" ||
         problem.kind === "subarray-sum-3d" ||
         problem.kind === "vector-add" ||
@@ -6473,6 +6880,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const isRotaryEmbedding = problem.kind === "rotary-positional-embedding";
       const isSlidingAttention = problem.kind === "sliding-window-attention";
       const usesThirdInput =
+        problem.kind === "max-pooling-2d" ||
         problem.kind === "batch-normalization" ||
         problem.kind === "subarray-sum-3d" ||
         isSoftmaxAttention ||
@@ -6517,9 +6925,15 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const isInterleave = problem.kind === "interleave-arrays";
       const isMergeSorted = problem.kind === "merge-sorted" || problem.kind === "parallel-merge";
       const isJacobi2D = problem.kind === "jacobi-2d";
+      const isRegressionVector =
+        problem.kind === "ordinary-least-squares" ||
+        problem.kind === "logistic-regression";
+      const isFft = problem.kind === "fast-fourier-transform";
       const isAttention =
         isSoftmaxAttention || isMultiHeadAttention || isAlibiAttention || isCausalAttention || isSlidingAttention;
       const showMatrixM =
+        isRegressionVector ||
+        isFft ||
         isConvolution3D ||
         isConvolution2D ||
         isGaussianBlur ||
@@ -6551,6 +6965,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isMaxSubarray ||
         isJacobi2D;
       const showMatrixN =
+        isRegressionVector ||
         isConvolution3D ||
         isConvolution2D ||
         isGaussianBlur ||
@@ -6652,6 +7067,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       document.getElementById("input-a-label").textContent =
         problem.kind === "vector-add"
           ? "Vector A"
+          : isRegressionVector
+            ? "Feature Matrix X (row-major)"
+          : problem.kind === "max-pooling-2d"
+            ? "Input Tensor (flat N*C*H*W)"
+          : isFft
+            ? "Signal [real0, imag0, ...]"
           : isMultiAgentSimulation
             ? "Agents (flat [x, y, vx, vy])"
           : isNearestNeighbor
@@ -6706,6 +7127,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       document.getElementById("input-b-label").textContent =
         problem.kind === "vector-add"
           ? "Vector B"
+          : isRegressionVector
+            ? "Target Vector y"
+          : problem.kind === "max-pooling-2d"
+            ? "Dimensions [N, C, H, W]"
           : isBatchNormalization
             ? "Gamma"
           : isSubarraySum3D
@@ -6746,7 +7171,9 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
               ? "Unused"
             : "Input B";
       document.getElementById("input-c-label").textContent =
-        isBatchNormalization
+        problem.kind === "max-pooling-2d"
+          ? "Pooling [kernel_size, stride, padding]"
+          : isBatchNormalization
           ? "Beta"
           : isSubarraySum3D
             ? "Bounds [S_DEP, E_DEP, S_ROW, E_ROW, S_COL, E_COL]"
@@ -6759,6 +7186,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       matrixMLabel.textContent =
         isColorInversion ? "Width"
         : isGrayscale ? "Width"
+        : isRegressionVector ? "Samples N"
+        : isFft ? "Signal N"
         : isMultiAgentSimulation ? "Agents N"
         : isNearestNeighbor ? "Points N"
         : isConvolution3D ? "Input Depth"
@@ -6789,6 +7218,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       matrixNLabel.textContent =
         isColorInversion ? "Height"
         : isGrayscale ? "Height"
+        : isRegressionVector ? "Features D"
         : isConvolution3D ? "Input Rows"
         : isGaussianBlur ? "Input Cols"
         : isConvolution2D ? "Input Cols"
@@ -6862,6 +7292,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       inputA.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "1.0, 2.0, 3.0"
+          : isRegressionVector
+            ? "2.0, 1.0, 1.0, 2.0, 3.0, 3.0"
+          : problem.kind === "max-pooling-2d"
+            ? "1.0, 2.0, 3.0, 4.0"
+          : isFft
+            ? "1.0, 0.0, 0.0, 0.0"
           : isMultiAgentSimulation
             ? "0.0, 0.0, 1.0, 0.0, 3.0, 4.0, 0.0, -1.0"
           : isNearestNeighbor
@@ -6929,6 +7365,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       inputB.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "4.0, 5.0, 6.0"
+          : isRegressionVector
+            ? "1.0, 1.0, 0.0"
+          : problem.kind === "max-pooling-2d"
+            ? "1, 1, 2, 2"
           : isBatchNormalization
             ? "1.0, 1.0"
           : isSubarraySum3D
@@ -6970,7 +7410,9 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
               : "")
         : "Browser judge is not available for this challenge.";
       inputC.placeholder = canRun
-        ? (isBatchNormalization
+        ? (problem.kind === "max-pooling-2d"
+          ? "2, 1, 0"
+          : isBatchNormalization
           ? "0.0, 0.0"
           : isSubarraySum3D
           ? "0, 1, 0, 0, 1, 2"
@@ -7143,6 +7585,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       summary.innerHTML = '<span class="pill">Waiting for a run</span>';
       if (problem.kind === "multi-agent-simulation") {
         vector.textContent = "agents_next = [ waiting for a run ]";
+      } else if (problem.kind === "ordinary-least-squares" || problem.kind === "logistic-regression") {
+        vector.textContent = "beta = [ waiting for a run ]";
+      } else if (problem.kind === "fast-fourier-transform") {
+        vector.textContent = "spectrum = [ waiting for a run ]";
       } else if (problem.kind === "nearest-neighbor") {
         vector.textContent = "indices = [ waiting for a run ]";
       } else if (problem.kind === "sparse-matrix-vector-multiplication") {
@@ -7175,6 +7621,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       } else if (problem.kind === "matrix-power" || problem.kind === "all-pairs-shortest-paths") {
         vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "jacobi-2d") {
+        vector.textContent = "output = [ waiting for a run ]";
+      } else if (problem.kind === "max-pooling-2d") {
         vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "convolution-3d") {
         vector.textContent = "output = [ waiting for a run ]";
@@ -8153,6 +8601,124 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
     function renderBatchNormalizationResults(inputA, gamma, beta, rowsN, colsC, eps, output) {
       const expected = buildBatchNormalizationExpected(inputA, gamma, beta, rowsN, colsC, eps);
       renderMatrixJudgeResults(output, expected, rowsN, colsC, "output", [`Shape: ${rowsN} x ${colsC}`, `eps: ${formatNumber(eps)}`], 1e-3);
+    }
+
+    function renderOlsResults(inputA, inputB, nSamples, nFeatures, output) {
+      const expected = buildOlsExpected(inputA, inputB, nSamples, nFeatures);
+      const allMatch = arraysAlmostEqualWithTolerance(output, expected, 1e-2, 1e-2);
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+      summary.appendChild(status);
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `X: ${nSamples} x ${nFeatures}`;
+      summary.appendChild(shape);
+
+      const tolerance = document.createElement("span");
+      tolerance.className = "pill";
+      tolerance.textContent = "Tolerance: 1e-2 abs/rel";
+      summary.appendChild(tolerance);
+
+      vector.textContent = `beta = ${formatVector(output)}`;
+      for (let i = 0; i < Math.min(output.length, expected.length, 12); i += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>beta[${i}] = ${formatNumber(output[i])}</strong>expected=${formatNumber(expected[i])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderLogisticRegressionResults(inputA, inputB, nSamples, nFeatures, output) {
+      const expected = buildLogisticRegressionExpected(inputA, inputB, nSamples, nFeatures);
+      const allMatch = arraysAlmostEqualWithTolerance(output, expected, 1e-2, 1e-2);
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+      summary.appendChild(status);
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `X: ${nSamples} x ${nFeatures}`;
+      summary.appendChild(shape);
+
+      const tolerance = document.createElement("span");
+      tolerance.className = "pill";
+      tolerance.textContent = "Tolerance: 1e-2 abs/rel";
+      summary.appendChild(tolerance);
+
+      vector.textContent = `beta = ${formatVector(output)}`;
+      for (let i = 0; i < Math.min(output.length, expected.length, 12); i += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>beta[${i}] = ${formatNumber(output[i])}</strong>expected=${formatNumber(expected[i])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderFftResults(signal, signalLength, output) {
+      const expected = buildFftExpected(signal, signalLength);
+      const allMatch = arraysAlmostEqualWithTolerance(output, expected, 1e-3, 1e-3);
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+      summary.appendChild(status);
+
+      const sizeBadge = document.createElement("span");
+      sizeBadge.className = "pill";
+      sizeBadge.textContent = `N: ${signalLength}`;
+      summary.appendChild(sizeBadge);
+
+      const tolerance = document.createElement("span");
+      tolerance.className = "pill";
+      tolerance.textContent = "Tolerance: 1e-3 abs/rel";
+      summary.appendChild(tolerance);
+
+      vector.textContent = `spectrum = ${formatComplexVector(output)}`;
+      for (let i = 0; i < Math.min(signalLength, 8); i += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML =
+          `<strong>X[${i}] = ${formatComplex(output[i * 2], output[i * 2 + 1])}</strong>` +
+          `expected=${formatComplex(expected[i * 2], expected[i * 2 + 1])}`;
+        list.appendChild(item);
+      }
+    }
+
+    function renderMaxPooling2DResults(input, batchSize, channelCount, height, width, kernelSize, stride, padding, output) {
+      const outputHeight = Math.floor((height + 2 * padding - kernelSize) / stride) + 1;
+      const outputWidth = Math.floor((width + 2 * padding - kernelSize) / stride) + 1;
+      const expected = buildMaxPooling2DExpected(input, batchSize, channelCount, height, width, kernelSize, stride, padding);
+      renderSimpleVectorJudgeResults(
+        output,
+        expected,
+        "output",
+        [
+          `Input: ${batchSize} x ${channelCount} x ${height} x ${width}`,
+          `Output: ${batchSize} x ${channelCount} x ${outputHeight} x ${outputWidth}`,
+          `kernel=${kernelSize}, stride=${stride}, padding=${padding}`
+        ],
+        1e-4
+      );
     }
 
     function renderBfsShortestPathResults(inputA, rows, cols, startRow, startCol, endRow, endCol, output) {
@@ -9567,6 +10133,192 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         window.Module._free(inputAPtr);
         window.Module._free(inputBPtr);
         window.Module._free(inputCPtr);
+      }
+    }
+
+    function runRegressionVector() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const problem = getCurrentProblem();
+      const nSamples = parsePositiveInt(document.getElementById("matrix-m").value);
+      const nFeatures = parsePositiveInt(document.getElementById("matrix-n").value);
+      if (nSamples === null || nFeatures === null) {
+        pushLog("n_samples and n_features must both be positive integers.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+      if (inputA.length !== nSamples * nFeatures) {
+        pushLog("Feature matrix length must equal n_samples x n_features.", "stderr");
+        return;
+      }
+
+      if (inputB.length !== nSamples) {
+        pushLog("Target vector length must equal n_samples.", "stderr");
+        return;
+      }
+
+      if (problem.kind === "logistic-regression" && inputB.some((value) => value !== 0.0 && value !== 1.0)) {
+        pushLog("Logistic regression requires every y value to be either 0 or 1.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_regression_vector",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length, nSamples, nFeatures]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        if (problem.kind === "ordinary-least-squares") {
+          renderOlsResults(inputA, inputB, nSamples, nFeatures, output);
+        } else {
+          renderLogisticRegressionResults(inputA, inputB, nSamples, nFeatures, output);
+        }
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+      }
+    }
+
+    function runFft() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const signalLength = parsePositiveInt(document.getElementById("matrix-m").value);
+      if (signalLength === null) {
+        pushLog("N must be a positive integer.", "stderr");
+        return;
+      }
+
+      const signal = parseFloatList(document.getElementById("input-a").value);
+      if (signal.length !== signalLength * 2) {
+        pushLog("Signal length must equal 2 x N for interleaved complex input.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const signalBuffer = new Float32Array(signal);
+      const signalPtr = window.Module._malloc(signalBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(signalBuffer, signalPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_fft",
+          "number",
+          ["string", "number", "number", "number"],
+          [kernelName, signalPtr, signal.length, signalLength]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderFftResults(signal, signalLength, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(signalPtr);
+      }
+    }
+
+    function runMaxPooling2D() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const input = parseFloatList(document.getElementById("input-a").value);
+      const dims = parseIntList(document.getElementById("input-b").value);
+      const pooling = parseIntList(document.getElementById("input-c").value);
+      if (!dims || dims.length !== 4 || !pooling || pooling.length !== 3) {
+        pushLog("Input B must contain [N, C, H, W] and Input C must contain [kernel_size, stride, padding].", "stderr");
+        return;
+      }
+
+      const [batchSize, channelCount, height, width] = dims;
+      const [kernelSize, stride, padding] = pooling;
+      if (batchSize <= 0 || channelCount <= 0 || height <= 0 || width <= 0 || kernelSize <= 0 || stride <= 0 || padding < 0) {
+        pushLog("N, C, H, W, kernel_size, and stride must be positive integers, and padding must be non-negative.", "stderr");
+        return;
+      }
+
+      if (input.length !== batchSize * channelCount * height * width) {
+        pushLog("Input tensor length must equal N x C x H x W.", "stderr");
+        return;
+      }
+
+      const outputHeight = Math.floor((height + 2 * padding - kernelSize) / stride) + 1;
+      const outputWidth = Math.floor((width + 2 * padding - kernelSize) / stride) + 1;
+      if (outputHeight <= 0 || outputWidth <= 0) {
+        pushLog("The provided pooling parameters produce an empty output tensor.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputBuffer = new Float32Array(input);
+      const inputPtr = window.Module._malloc(inputBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputBuffer, inputPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_max_pooling_2d",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputPtr, input.length, batchSize, channelCount, height, width, kernelSize, stride, padding]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderMaxPooling2DResults(input, batchSize, channelCount, height, width, kernelSize, stride, padding, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputPtr);
       }
     }
 
@@ -11500,6 +12252,21 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
       if (problem.kind === "nearest-neighbor") {
         runNearestNeighbor();
+        return;
+      }
+
+      if (problem.kind === "ordinary-least-squares" || problem.kind === "logistic-regression") {
+        runRegressionVector();
+        return;
+      }
+
+      if (problem.kind === "fast-fourier-transform") {
+        runFft();
+        return;
+      }
+
+      if (problem.kind === "max-pooling-2d") {
+        runMaxPooling2D();
         return;
       }
 

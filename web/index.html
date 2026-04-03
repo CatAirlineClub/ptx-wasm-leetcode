@@ -2009,6 +2009,57 @@ extern "C" __global__ void solve(const float* inputA,
           }
         ]
       },
+      18: {
+        kind: "sparse-matrix-vector-multiplication",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with A, x, and y pointers plus 32-bit M, N, and nnz scalars. A is treated as an M x N row-major matrix, x as length N, and the final y vector must contain the dense matvec result.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full matrix-vector product directly in solve. The browser judge checks correctness only, so a dense row-major loop is acceptable.",
+        testcaseHint: "Paste row-major matrix A and vector x, then provide M, N, and nnz.",
+        testcaseHelp: "Matrix A length must equal M x N, vector x length must equal N, and nnz must be a non-negative integer. The browser judge compares the final y vector against a CPU matvec reference.",
+        resultTitle: "SpMV Output",
+        resultSubtitle: "The final output vector y must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* A, const float* x, float* y, int M, int N, int nnz) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* A,
+                                 const float* x,
+                                 float* y,
+                                 int M,
+                                 int N,
+                                 int nnz) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int row = 0; row < M; row = row + 1) {
+            float sum = 0.0f;
+            for (int col = 0; col < N; col = col + 1) {
+                sum += A[row * N + col] * x[col];
+            }
+            y[row] = sum;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 3,
+            colsN: 4,
+            nnz: 4,
+            inputA: [5.0, 0.0, 0.0, 1.0, 0.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 4.0],
+            inputB: [1.0, 2.0, 3.0, 4.0],
+            expected: [9.0, 13.0, 16.0]
+          },
+          {
+            label: "Example 2",
+            rowsM: 2,
+            colsN: 3,
+            nnz: 3,
+            inputA: [1.0, 0.0, 2.0, 0.0, 3.0, 0.0],
+            inputB: [4.0, 5.0, 6.0],
+            expected: [16.0, 15.0]
+          }
+        ]
+      },
       19: {
         kind: "reverse-array",
         supportsRun: true,
@@ -2310,6 +2361,58 @@ extern "C" __global__ void solve(const float* input, float* output, int N, int k
             inputA: [7.2, -1.0, 3.3, 8.8, 2.2],
             k: 2,
             expected: [8.8, 7.2]
+          }
+        ]
+      },
+      30: {
+        kind: "batched-matrix-multiplication",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with A, B, and C pointers plus 32-bit BATCH, M, N, and K scalars. A is treated as BATCH x M x N, B as BATCH x N x K, and the final output C must contain the batched row-major products.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full batched matrix multiplication directly in solve.",
+        testcaseHint: "Paste flattened batched matrices A and B, then provide BATCH, M, N, and K.",
+        testcaseHelp: "Input A length must equal BATCH x M x N and input B length must equal BATCH x N x K. The browser judge compares the final C buffer against a CPU batched matmul reference.",
+        resultTitle: "Batched MatMul Output",
+        resultSubtitle: "The final BATCH x M x K output tensor must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* A, const float* B, float* C, int BATCH, int M, int N, int K) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* A,
+                                 const float* B,
+                                 float* C,
+                                 int BATCH,
+                                 int M,
+                                 int N,
+                                 int K) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int batch = 0; batch < BATCH; batch = batch + 1) {
+            int offsetA = batch * M * N;
+            int offsetB = batch * N * K;
+            int offsetC = batch * M * K;
+
+            for (int row = 0; row < M; row = row + 1) {
+                for (int col = 0; col < K; col = col + 1) {
+                    float sum = 0.0f;
+                    for (int i = 0; i < N; i = i + 1) {
+                        sum += A[offsetA + row * N + i] * B[offsetB + i * K + col];
+                    }
+                    C[offsetC + row * K + col] = sum;
+                }
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            batchSize: 2,
+            rowsM: 2,
+            sharedN: 3,
+            colsK: 2,
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            inputB: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+            expected: [22.0, 28.0, 49.0, 64.0, 92.0, 68.0, 128.0, 95.0]
           }
         ]
       },
@@ -2995,6 +3098,72 @@ extern "C" __global__ void solve(const float* Q,
           }
         ]
       },
+      56: {
+        kind: "linear-self-attention",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with Q, K, V, and output pointers plus 32-bit M and d scalars. All three inputs are treated as M x d row-major matrices, and the final output must match the CPU linear-attention reference using phi(x) = x + 1 for positive x and exp(x) otherwise.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full linear self-attention output directly in solve.",
+        testcaseHint: "Paste row-major Q, K, and V matrices, then provide M and d.",
+        testcaseHelp: "Each input length must equal M x d. The browser judge compares the full output matrix against a CPU linear self-attention reference.",
+        resultTitle: "Linear Attention Output",
+        resultSubtitle: "The final M x d output matrix must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* Q, const float* K, const float* V, float* output, int M, int d) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* Q,
+                                 const float* K,
+                                 const float* V,
+                                 float* output,
+                                 int M,
+                                 int d) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < M; i = i + 1) {
+            for (int col = 0; col < d; col = col + 1) {
+                float numer = 0.0f;
+                float denom = 0.0f;
+
+                for (int j = 0; j < M; j = j + 1) {
+                    float weight = 0.0f;
+                    for (int t = 0; t < d; t = t + 1) {
+                        float qv = Q[i * d + t];
+                        float kv = K[j * d + t];
+                        float qphi = qv > 0.0f ? qv + 1.0f : expf(qv);
+                        float kphi = kv > 0.0f ? kv + 1.0f : expf(kv);
+                        weight += qphi * kphi;
+                    }
+                    numer += weight * V[j * d + col];
+                    denom += weight;
+                }
+
+                output[i * d + col] = numer / denom;
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 2,
+            colsK: 4,
+            inputA: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            inputB: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            inputC: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            expected: [2.8461537, 3.8461537, 4.8461537, 5.8461537, 3.1538463, 4.1538463, 5.1538463, 6.1538463]
+          },
+          {
+            label: "Example 2",
+            rowsM: 2,
+            colsK: 2,
+            inputA: [0.0, 0.0, 1.0, 1.0],
+            inputB: [1.0, 0.0, 0.0, 1.0],
+            inputC: [3.0, 4.0, 5.0, 6.0],
+            expected: [4.0, 5.0, 4.0, 5.0]
+          }
+        ]
+      },
       59: {
         kind: "sliding-window-attention",
         supportsRun: true,
@@ -3071,6 +3240,48 @@ extern "C" __global__ void solve(const float* Q,
           }
         ]
       },
+      64: {
+        kind: "weight-dequantization",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with X, S, and Y pointers plus 32-bit M, N, and TILE_SIZE scalars. X and Y are treated as M x N row-major matrices and S as the per-tile scale matrix with ceil(M / TILE_SIZE) x ceil(N / TILE_SIZE) elements.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that multiplies each weight by its tile scale directly in solve.",
+        testcaseHint: "Paste row-major X and scale matrix S, then provide M, N, and TILE_SIZE.",
+        testcaseHelp: "Input X length must equal M x N, scale length must equal ceil(M / TILE_SIZE) x ceil(N / TILE_SIZE), and TILE_SIZE must be positive. The browser judge compares the full output matrix against a CPU tiled dequantization reference.",
+        resultTitle: "Dequantized Output",
+        resultSubtitle: "The final M x N output matrix must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* X, const float* S, float* Y, int M, int N, int TILE_SIZE) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* X,
+                                 const float* S,
+                                 float* Y,
+                                 int M,
+                                 int N,
+                                 int TILE_SIZE) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int tileCols = (N + TILE_SIZE - 1) / TILE_SIZE;
+        for (int row = 0; row < M; row = row + 1) {
+            for (int col = 0; col < N; col = col + 1) {
+                int scaleIndex = (row / TILE_SIZE) * tileCols + (col / TILE_SIZE);
+                Y[row * N + col] = X[row * N + col] * S[scaleIndex];
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 4,
+            colsN: 4,
+            tileSize: 2,
+            inputA: [10.0, 10.0, 5.0, 5.0, 10.0, 10.0, 5.0, 5.0, 2.0, 2.0, 8.0, 8.0, 2.0, 2.0, 8.0, 8.0],
+            inputB: [0.5, 2.0, 4.0, 0.25],
+            expected: [5.0, 5.0, 10.0, 10.0, 5.0, 5.0, 10.0, 10.0, 8.0, 8.0, 2.0, 2.0, 8.0, 8.0, 2.0, 2.0]
+          }
+        ]
+      },
       65: {
         kind: "gelu",
         supportsRun: true,
@@ -3128,6 +3339,50 @@ extern "C" __global__ void solve(const float* input, float* output, int N) {
             label: "Example 1",
             inputA: [-1.0, 0.0, 1.0, 2.0],
             expected: [0.268941, 0.5, 0.731059, 0.880797]
+          }
+        ]
+      },
+      61: {
+        kind: "rotary-positional-embedding",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with Q, cos, sin, and output pointers plus 32-bit M and D scalars. All four tensors are treated as M x D row-major matrices, and the final output must match the CPU RoPE reference output = Q * cos + rotate_half(Q) * sin.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full rotary positional embedding output directly in solve.",
+        testcaseHint: "Paste row-major Q, cos, and sin matrices, then provide M and D.",
+        testcaseHelp: "Each input length must equal M x D, and D must be even. The browser judge compares the final output matrix against a CPU rotary embedding reference.",
+        resultTitle: "RoPE Output",
+        resultSubtitle: "The final M x D output matrix must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(float* Q, float* cos, float* sin, float* output, int M, int D) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(float* Q,
+                                 float* cos,
+                                 float* sin,
+                                 float* output,
+                                 int M,
+                                 int D) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int half = D / 2;
+        for (int row = 0; row < M; row = row + 1) {
+            for (int idx = 0; idx < half; idx = idx + 1) {
+                float left = Q[row * D + idx];
+                float right = Q[row * D + half + idx];
+                output[row * D + idx] = left * cos[row * D + idx] - right * sin[row * D + idx];
+                output[row * D + half + idx] = right * cos[row * D + half + idx] + left * sin[row * D + half + idx];
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsM: 2,
+            colsK: 4,
+            inputA: [1.0, 2.0, 3.0, 4.0, 1.0, 1.0, 1.0, 1.0],
+            inputB: [1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+            inputC: [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+            expected: [1.0, 2.0, 3.0, 4.0, -1.0, -1.0, 1.0, 1.0]
           }
         ]
       },
@@ -4103,6 +4358,42 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       return result;
     }
 
+    function buildSparseMatVecExpected(inputA, inputB, rowsM, colsN) {
+      const result = new Array(rowsM).fill(0.0);
+
+      for (let row = 0; row < rowsM; row += 1) {
+        let acc = 0.0;
+        for (let col = 0; col < colsN; col += 1) {
+          acc += inputA[row * colsN + col] * inputB[col];
+        }
+        result[row] = acc;
+      }
+
+      return result;
+    }
+
+    function buildBatchedMatMulExpected(inputA, inputB, batchSize, rowsM, sharedN, colsK) {
+      const result = new Array(batchSize * rowsM * colsK).fill(0.0);
+
+      for (let batch = 0; batch < batchSize; batch += 1) {
+        const offsetA = batch * rowsM * sharedN;
+        const offsetB = batch * sharedN * colsK;
+        const offsetC = batch * rowsM * colsK;
+
+        for (let row = 0; row < rowsM; row += 1) {
+          for (let col = 0; col < colsK; col += 1) {
+            let acc = 0.0;
+            for (let i = 0; i < sharedN; i += 1) {
+              acc += inputA[offsetA + row * sharedN + i] * inputB[offsetB + i * colsK + col];
+            }
+            result[offsetC + row * colsK + col] = acc;
+          }
+        }
+      }
+
+      return result;
+    }
+
     function buildMatrixAdditionExpected(inputA, inputB) {
       return inputA.map((value, index) => value + inputB[index]);
     }
@@ -4559,6 +4850,38 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       return output;
     }
 
+    function buildLinearSelfAttentionExpected(inputQ, inputK, inputV, rowsM, featureD) {
+      const output = new Array(rowsM * featureD).fill(0.0);
+
+      function phi(value) {
+        return value > 0 ? value + 1 : Math.exp(value);
+      }
+
+      for (let row = 0; row < rowsM; row += 1) {
+        const weights = new Array(rowsM).fill(0.0);
+        let denom = 0.0;
+
+        for (let key = 0; key < rowsM; key += 1) {
+          let weight = 0.0;
+          for (let i = 0; i < featureD; i += 1) {
+            weight += phi(inputQ[row * featureD + i]) * phi(inputK[key * featureD + i]);
+          }
+          weights[key] = weight;
+          denom += weight;
+        }
+
+        for (let col = 0; col < featureD; col += 1) {
+          let acc = 0.0;
+          for (let key = 0; key < rowsM; key += 1) {
+            acc += (weights[key] / denom) * inputV[key * featureD + col];
+          }
+          output[row * featureD + col] = acc;
+        }
+      }
+
+      return output;
+    }
+
     function buildSlidingWindowAttentionExpected(inputQ, inputK, inputV, rowsM, featureD, windowSize) {
       const output = new Array(rowsM * featureD).fill(0);
       const scale = 1 / Math.sqrt(featureD);
@@ -4640,6 +4963,38 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
     function buildValueClippingExpected(inputA, lowerBound, upperBound) {
       return inputA.map((value) => Math.min(upperBound, Math.max(lowerBound, value)));
+    }
+
+    function buildRotaryEmbeddingExpected(inputQ, cos, sin, rowsM, featureD) {
+      const output = new Array(rowsM * featureD).fill(0.0);
+      const half = featureD / 2;
+
+      for (let row = 0; row < rowsM; row += 1) {
+        for (let idx = 0; idx < half; idx += 1) {
+          const left = inputQ[row * featureD + idx];
+          const right = inputQ[row * featureD + half + idx];
+          output[row * featureD + idx] =
+            left * cos[row * featureD + idx] - right * sin[row * featureD + idx];
+          output[row * featureD + half + idx] =
+            right * cos[row * featureD + half + idx] + left * sin[row * featureD + half + idx];
+        }
+      }
+
+      return output;
+    }
+
+    function buildWeightDequantizationExpected(inputA, inputB, rowsM, colsN, tileSize) {
+      const tileCols = Math.ceil(colsN / tileSize);
+      const output = new Array(rowsM * colsN).fill(0.0);
+
+      for (let row = 0; row < rowsM; row += 1) {
+        for (let col = 0; col < colsN; col += 1) {
+          const scaleIndex = Math.floor(row / tileSize) * tileCols + Math.floor(col / tileSize);
+          output[row * colsN + col] = inputA[row * colsN + col] * inputB[scaleIndex];
+        }
+      }
+
+      return output;
     }
 
     function buildMultiHeadAttentionExpected(inputQ, inputK, inputV, sequenceN, modelD, numHeads) {
@@ -4856,6 +5211,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         document.getElementById("matrix-l").value = "";
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "batched-matrix-multiplication") {
+        document.getElementById("matrix-m").value = String(example.batchSize);
+        document.getElementById("matrix-n").value = String(example.rowsM);
+        document.getElementById("matrix-k").value = String(example.sharedN);
+        document.getElementById("matrix-l").value = String(example.colsK);
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       } else if (problem.kind === "multi-head-attention") {
         document.getElementById("matrix-m").value = String(example.sequenceN);
         document.getElementById("matrix-n").value = String(example.modelD);
@@ -4881,6 +5243,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         document.getElementById("matrix-m").value = String(example.rows);
         document.getElementById("matrix-n").value = String(example.cols);
         document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "sparse-matrix-vector-multiplication") {
+        document.getElementById("matrix-m").value = String(example.rowsM);
+        document.getElementById("matrix-n").value = String(example.colsN);
+        document.getElementById("matrix-k").value = String(example.nnz);
         document.getElementById("matrix-l").value = "";
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
@@ -5017,6 +5386,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         document.getElementById("matrix-l").value = "";
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "linear-self-attention" || problem.kind === "rotary-positional-embedding") {
+        document.getElementById("matrix-m").value = String(example.rowsM);
+        document.getElementById("matrix-n").value = String(example.colsK);
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       } else if (problem.kind === "attention-with-linear-biases") {
         document.getElementById("matrix-m").value = String(example.rowsM);
         document.getElementById("matrix-n").value = String(example.sharedN);
@@ -5035,6 +5411,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         document.getElementById("matrix-m").value = String(example.length);
         document.getElementById("matrix-n").value = String(example.lowerBound);
         document.getElementById("matrix-k").value = String(example.upperBound);
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "weight-dequantization") {
+        document.getElementById("matrix-m").value = String(example.rowsM);
+        document.getElementById("matrix-n").value = String(example.colsN);
+        document.getElementById("matrix-k").value = String(example.tileSize);
         document.getElementById("matrix-l").value = "";
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
@@ -5221,6 +5604,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">        labels = [${example.inputB.join(", ")}]</span>
             <span class="vector-line">Output: loss[0] = ${formatNumber(example.expected)}</span>
           `;
+        } else if (problem.kind === "sparse-matrix-vector-multiplication") {
+          bodyHtml = `
+            <span class="vector-line">Input:  A (${example.rowsM} x ${example.colsN}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsN)}</span>
+            <span class="vector-line">        x = ${formatVector(example.inputB)}</span>
+            <span class="vector-line">        nnz = ${example.nnz}</span>
+            <span class="vector-line">Output: y = ${formatVector(example.expected)}</span>
+          `;
         } else if (problem.kind === "rms-normalization") {
           bodyHtml = `
             <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
@@ -5255,12 +5645,26 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">        V (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.rowsM, example.colsK)}</span>
             <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
           `;
+        } else if (problem.kind === "linear-self-attention") {
+          bodyHtml = `
+            <span class="vector-line">Input:  Q (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        K (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputB, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        V (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
+          `;
         } else if (problem.kind === "attention-with-linear-biases") {
           bodyHtml = `
             <span class="vector-line">Input:  Q (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsK)}</span>
             <span class="vector-line">        K (${example.sharedN} x ${example.colsK}) = ${formatMatrixInline(example.inputB, example.sharedN, example.colsK)}</span>
             <span class="vector-line">        V (${example.sharedN} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.sharedN, example.colsK)}</span>
             <span class="vector-line">        alpha = ${formatNumber(example.alpha)}</span>
+            <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
+          `;
+        } else if (problem.kind === "rotary-positional-embedding") {
+          bodyHtml = `
+            <span class="vector-line">Input:  Q (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        cos (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputB, example.rowsM, example.colsK)}</span>
+            <span class="vector-line">        sin (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.rowsM, example.colsK)}</span>
             <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
           `;
         } else if (problem.kind === "sliding-window-attention") {
@@ -5270,6 +5674,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">        V (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.inputC, example.rowsM, example.colsK)}</span>
             <span class="vector-line">        window_size = ${example.windowSize}</span>
             <span class="vector-line">Output: output (${example.rowsM} x ${example.colsK}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsK)}</span>
+          `;
+        } else if (problem.kind === "weight-dequantization") {
+          bodyHtml = `
+            <span class="vector-line">Input:  X (${example.rowsM} x ${example.colsN}) = ${formatMatrixInline(example.inputA, example.rowsM, example.colsN)}</span>
+            <span class="vector-line">        S (${Math.ceil(example.rowsM / example.tileSize)} x ${Math.ceil(example.colsN / example.tileSize)}) = ${formatMatrixInline(example.inputB, Math.ceil(example.rowsM / example.tileSize), Math.ceil(example.colsN / example.tileSize))}</span>
+            <span class="vector-line">        tile_size = ${example.tileSize}</span>
+            <span class="vector-line">Output: Y (${example.rowsM} x ${example.colsN}) = ${formatMatrixInline(example.expected, example.rowsM, example.colsN)}</span>
           `;
         } else if (problem.kind === "color-inversion") {
           bodyHtml = `
@@ -5428,6 +5839,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">Input:  input = ${formatVector(example.inputA)}</span>
             <span class="vector-line">Output: output = ${formatVector(example.expected)}</span>
           `;
+        } else if (problem.kind === "batched-matrix-multiplication") {
+          bodyHtml = `
+            <span class="vector-line">Input:  A (${example.batchSize} x ${example.rowsM} x ${example.sharedN}) = ${formatTensorInline(example.inputA, example.batchSize, example.rowsM, example.sharedN)}</span>
+            <span class="vector-line">        B (${example.batchSize} x ${example.sharedN} x ${example.colsK}) = ${formatTensorInline(example.inputB, example.batchSize, example.sharedN, example.colsK)}</span>
+            <span class="vector-line">Output: C (${example.batchSize} x ${example.rowsM} x ${example.colsK}) = ${formatTensorInline(example.expected, example.batchSize, example.rowsM, example.colsK)}</span>
+          `;
         } else {
           bodyHtml = `
             <span class="vector-line">Input:  A (${example.rowsM} x ${example.sharedN}) = ${formatMatrixInline(example.inputA, example.rowsM, example.sharedN)}</span>
@@ -5494,13 +5911,18 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "gaussian-blur" ||
         problem.kind === "convolution-1d" ||
         problem.kind === "cross-entropy-loss" ||
+        problem.kind === "sparse-matrix-vector-multiplication" ||
         problem.kind === "matrix-addition" ||
         problem.kind === "matrix-multiplication" ||
+        problem.kind === "batched-matrix-multiplication" ||
         problem.kind === "multi-head-attention" ||
         problem.kind === "softmax-attention" ||
         problem.kind === "attention-with-linear-biases" ||
         problem.kind === "causal-self-attention" ||
+        problem.kind === "linear-self-attention" ||
+        problem.kind === "rotary-positional-embedding" ||
         problem.kind === "sliding-window-attention" ||
+        problem.kind === "weight-dequantization" ||
         problem.kind === "dot-product" ||
         problem.kind === "mse" ||
         problem.kind === "interleave-arrays" ||
@@ -5510,21 +5932,32 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const isMultiHeadAttention = problem.kind === "multi-head-attention";
       const isAlibiAttention = problem.kind === "attention-with-linear-biases";
       const isCausalAttention = problem.kind === "causal-self-attention";
+      const isLinearAttention = problem.kind === "linear-self-attention";
+      const isRotaryEmbedding = problem.kind === "rotary-positional-embedding";
       const isSlidingAttention = problem.kind === "sliding-window-attention";
       const usesThirdInput =
-        isSoftmaxAttention || isMultiHeadAttention || isAlibiAttention || isCausalAttention || isSlidingAttention;
+        isSoftmaxAttention ||
+        isMultiHeadAttention ||
+        isAlibiAttention ||
+        isCausalAttention ||
+        isLinearAttention ||
+        isRotaryEmbedding ||
+        isSlidingAttention;
       const isColorInversion = problem.kind === "color-inversion";
       const isGrayscale = problem.kind === "rgb-to-grayscale";
       const isConvolution3D = problem.kind === "convolution-3d";
       const isConvolution2D = problem.kind === "convolution-2d";
       const isGaussianBlur = problem.kind === "gaussian-blur";
       const isCrossEntropy = problem.kind === "cross-entropy-loss";
+      const isSparseMatVec = problem.kind === "sparse-matrix-vector-multiplication";
       const isRmsNormalization = problem.kind === "rms-normalization";
       const isMatrixAddition = problem.kind === "matrix-addition";
       const isMatrixMultiply = problem.kind === "matrix-multiplication";
+      const isBatchedMatMul = problem.kind === "batched-matrix-multiplication";
       const isTranspose = problem.kind === "matrix-transpose";
       const isMonteCarlo = problem.kind === "monte-carlo-integration";
       const isValueClipping = problem.kind === "value-clipping";
+      const isWeightDequantization = problem.kind === "weight-dequantization";
       const isMatrixPower = problem.kind === "matrix-power";
       const isAllPairsShortestPaths = problem.kind === "all-pairs-shortest-paths";
       const isHistogramming = problem.kind === "histogramming";
@@ -5547,15 +5980,20 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution2D ||
         isGaussianBlur ||
         isCrossEntropy ||
+        isSparseMatVec ||
         isRmsNormalization ||
         isMatrixAddition ||
         isMatrixMultiply ||
+        isBatchedMatMul ||
         isMonteCarlo ||
         isValueClipping ||
         isTranspose ||
         isMatrixPower ||
         isAllPairsShortestPaths ||
         isAttention ||
+        isLinearAttention ||
+        isRotaryEmbedding ||
+        isWeightDequantization ||
         isColorInversion ||
         isGrayscale ||
         isCountArray2D ||
@@ -5569,10 +6007,15 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution2D ||
         isGaussianBlur ||
         isCrossEntropy ||
+        isSparseMatVec ||
         isRmsNormalization ||
         isMatrixMultiply ||
+        isBatchedMatMul ||
+        isLinearAttention ||
+        isRotaryEmbedding ||
         isMonteCarlo ||
         isValueClipping ||
+        isWeightDequantization ||
         isTranspose ||
         isMatrixPower ||
         isAttention ||
@@ -5587,13 +6030,16 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution3D ||
         isConvolution2D ||
         isGaussianBlur ||
+        isSparseMatVec ||
         isRmsNormalization ||
         isMatrixMultiply ||
+        isBatchedMatMul ||
         isSoftmaxAttention ||
         isAlibiAttention ||
         isMultiHeadAttention ||
         isSlidingAttention ||
         isValueClipping ||
+        isWeightDequantization ||
         isHistogramming ||
         isTopK ||
         isCountArray ||
@@ -5604,6 +6050,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution3D ||
         isConvolution2D ||
         isGaussianBlur ||
+        isBatchedMatMul ||
         isAlibiAttention ||
         isCountArray3D ||
         isSubarraySum2D;
@@ -5664,8 +6111,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "Input Array"
           : isCrossEntropy
             ? "Logits Matrix (row-major)"
+          : isSparseMatVec
+            ? "Matrix A (row-major)"
           : isRmsNormalization || isValueClipping
             ? "Input Vector"
+          : isWeightDequantization
+            ? "Matrix X (row-major)"
           : isMatrixPower || isAllPairsShortestPaths
             ? "Input Matrix (row-major)"
           : isColorInversion
@@ -5676,7 +6127,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "Input Array"
           : isMse
             ? "Predictions"
+          : isBatchedMatMul
+            ? "Tensor A (flat)"
           : isAttention
+            ? "Matrix Q (row-major)"
+          : isLinearAttention || isRotaryEmbedding
             ? "Matrix Q (row-major)"
           : isMatrixAddition
             ? "Matrix A (row-major)"
@@ -5704,8 +6159,18 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "Kernel"
           : isCrossEntropy
             ? "True Labels"
+          : isSparseMatVec
+            ? "Vector x"
+          : isWeightDequantization
+            ? "Scale Matrix S"
+          : isBatchedMatMul
+            ? "Tensor B (flat)"
           : isAttention
             ? "Matrix K (row-major)"
+          : isLinearAttention
+            ? "Matrix K (row-major)"
+          : isRotaryEmbedding
+            ? "Matrix cos (row-major)"
           : isMatrixAddition
             ? "Matrix B (row-major)"
           : isMatrixMultiply
@@ -5718,7 +6183,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
               ? "Unused"
             : "Input B";
       document.getElementById("input-c-label").textContent =
-        isAttention ? "Matrix V (row-major)" : "Input C";
+        isRotaryEmbedding
+          ? "Matrix sin (row-major)"
+          : (isAttention || isLinearAttention)
+            ? "Matrix V (row-major)"
+            : "Input C";
 
       matrixMLabel.textContent =
         isColorInversion ? "Width"
@@ -5727,9 +6196,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isGaussianBlur ? "Input Rows"
         : isConvolution2D ? "Input Rows"
         : isCrossEntropy ? "Rows N"
+        : isSparseMatVec ? "Rows M"
         : isRmsNormalization ? "Elements N"
+        : isBatchedMatMul ? "Batch"
         : isMonteCarlo ? "Lower a"
         : isValueClipping ? "Elements N"
+        : isWeightDequantization ? "Rows M"
         : isMatrixPower ? "Matrix N"
         : isAllPairsShortestPaths ? "Matrix N"
         : isTranspose ? "Input Rows"
@@ -5750,9 +6222,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isGaussianBlur ? "Input Cols"
         : isConvolution2D ? "Input Cols"
         : isCrossEntropy ? "Cols C"
+        : isSparseMatVec ? "Cols N"
         : isRmsNormalization ? "Gamma"
+        : isBatchedMatMul ? "Rows M"
         : isMonteCarlo ? "Upper b"
         : isValueClipping ? "Lower lo"
+        : isWeightDequantization ? "Cols N"
         : isMatrixPower ? "Power P"
         : isTranspose ? "Input Cols"
         : isCountArray2D ? "Cols M"
@@ -5760,6 +6235,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isSubarraySum ? "End E"
         : isSubarraySum2D ? "Cols M"
         : isJacobi2D ? "Cols"
+        : isLinearAttention ? "Feature d"
+        : isRotaryEmbedding ? "Dim D"
         : isAlibiAttention ? "Keys N"
         : isCausalAttention ? "Feature d"
         : isSlidingAttention ? "Feature d"
@@ -5770,12 +6247,15 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution3D ? "Input Cols"
         : isGaussianBlur ? "Kernel Rows"
         : isConvolution2D ? "Kernel Rows"
+        : isSparseMatVec ? "nnz"
         : isRmsNormalization ? "Beta"
+        : isBatchedMatMul ? "Shared N"
         : isSoftmaxAttention ? "Feature d"
         : isAlibiAttention ? "Feature d"
         : isSlidingAttention ? "Window Size"
         : isMultiHeadAttention ? "Heads h"
         : isValueClipping ? "Upper hi"
+        : isWeightDequantization ? "Tile Size"
         : isTopK ? "Top k"
         : isCountArray ? "Target K"
         : isCountArray2D ? "Target K"
@@ -5787,6 +6267,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isConvolution3D ? "Kernel Depth"
         : isGaussianBlur ? "Kernel Cols"
         : isConvolution2D ? "Kernel Cols"
+        : isBatchedMatMul ? "Cols K"
         : isAlibiAttention ? "Alpha"
         : isCountArray3D ? "Target P"
         : isSubarraySum2D ? "End Row"
@@ -5815,8 +6296,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "1.0, 2.0, 3.0, 4.0, 5.0"
           : isCrossEntropy
             ? "2.0, 1.0, 0.0, 0.5, 0.5, 0.5"
+          : isSparseMatVec
+            ? "5.0, 0.0, 0.0, 1.0, 0.0, 2.0, 3.0, 0.0"
           : isRmsNormalization
             ? "1.0, 2.0, 3.0, 4.0"
+          : isWeightDequantization
+            ? "10.0, 10.0, 5.0, 5.0"
           : isMonteCarlo
             ? "1.0, 4.0, 9.0, 16.0"
           : isValueClipping
@@ -5832,6 +6317,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
           : (problem.kind === "reduction" || problem.kind === "softmax")
             ? "1.0, 2.0, 3.0, 4.0"
           : isMse
+            ? "1.0, 2.0, 3.0, 4.0"
+          : isBatchedMatMul
+            ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
+          : isLinearAttention
+            ? "1.0, 0.0, 0.0, 0.0"
+          : isRotaryEmbedding
             ? "1.0, 2.0, 3.0, 4.0"
           : isAlibiAttention
             ? "1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0"
@@ -5866,6 +6357,16 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "1.0, 0.0, -1.0"
           : isCrossEntropy
             ? "0, 2"
+          : isSparseMatVec
+            ? "1.0, 2.0, 3.0, 4.0"
+          : isWeightDequantization
+            ? "0.5, 2.0, 4.0, 0.25"
+          : isBatchedMatMul
+            ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
+          : isLinearAttention
+            ? "1.0, 0.0, 0.0, 0.0"
+          : isRotaryEmbedding
+            ? "1.0, 1.0, 1.0, 1.0"
           : isAlibiAttention
             ? "1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0"
           : isCausalAttention || isSlidingAttention
@@ -5881,7 +6382,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
               : "")
         : "Browser judge is not available for this challenge.";
       inputC.placeholder = canRun
-        ? (isAlibiAttention
+        ? (isRotaryEmbedding
+          ? "0.0, 0.0, 0.0, 0.0"
+          : isLinearAttention
+          ? "1.0, 2.0, 3.0, 4.0"
+          : isAlibiAttention
           ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0"
           : isCausalAttention || isSlidingAttention
           ? "2.0, 1.0, 0.0, 3.0, 4.0, 5.0"
@@ -6044,8 +6549,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
 
       summary.innerHTML = '<span class="pill">Waiting for a run</span>';
-      if (problem.kind === "matrix-transpose") {
+      if (problem.kind === "sparse-matrix-vector-multiplication") {
+        vector.textContent = "y = [ waiting for a run ]";
+      } else if (problem.kind === "matrix-transpose") {
         vector.textContent = "A^T = [ waiting for a run ]";
+      } else if (problem.kind === "batched-matrix-multiplication") {
+        vector.textContent = "C = [ waiting for a run ]";
       } else if (problem.kind === "color-inversion") {
         vector.textContent = "image = [ waiting for a run ]";
       } else if (problem.kind === "sorting" || problem.kind === "radix-sort") {
@@ -6061,6 +6570,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "multi-head-attention" ||
         problem.kind === "attention-with-linear-biases" ||
         problem.kind === "causal-self-attention" ||
+        problem.kind === "linear-self-attention" ||
+        problem.kind === "rotary-positional-embedding" ||
         problem.kind === "sliding-window-attention"
       ) {
         vector.textContent = "output = [ waiting for a run ]";
@@ -6092,7 +6603,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         vector.textContent = "output[0] = [ waiting for a run ]";
       } else if (
         problem.kind === "rms-normalization" ||
-        problem.kind === "value-clipping"
+        problem.kind === "value-clipping" ||
+        problem.kind === "weight-dequantization"
       ) {
         vector.textContent = "output = [ waiting for a run ]";
       } else {
@@ -6808,9 +7320,92 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
     }
 
+    function renderMatrixJudgeResults(output, expected, rows, cols, label = "output", pills = [], tolerance = 1e-4) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const allMatch = arraysAlmostEqual(output, expected, tolerance);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+      summary.appendChild(status);
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${rows} x ${cols}`;
+      summary.appendChild(shape);
+
+      for (const pillText of pills) {
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = pillText;
+        summary.appendChild(pill);
+      }
+
+      vector.textContent = `${label} = ${formatMatrixMultiline(output, rows, cols)}`;
+
+      const actualRows = buildMatrixRows(output, rows, cols);
+      const expectedRows = buildMatrixRows(expected, rows, cols);
+      for (let row = 0; row < rows; row += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML = `<strong>Row ${row}</strong>actual=${formatVector(actualRows[row])}, expected=${formatVector(expectedRows[row])}`;
+        list.appendChild(item);
+      }
+    }
+
     function renderSortingResults(inputA, output) {
       const expected = buildSortingExpected(inputA);
       renderSimpleVectorJudgeResults(output, expected, "data", [`Elements: ${inputA.length}`], 1e-4);
+    }
+
+    function renderSparseMatVecResults(inputA, inputB, rowsM, colsN, nnz, output) {
+      const expected = buildSparseMatVecExpected(inputA, inputB, rowsM, colsN);
+      renderSimpleVectorJudgeResults(output, expected, "y", [`Shape: ${rowsM} x ${colsN}`, `nnz: ${nnz}`], 1e-4);
+    }
+
+    function renderBatchedMatMulResults(inputA, inputB, batchSize, rowsM, sharedN, colsK, output) {
+      const summary = document.getElementById("result-summary");
+      const list = document.getElementById("result-list");
+      const vector = document.getElementById("result-vector");
+      summary.innerHTML = "";
+      list.innerHTML = "";
+
+      const expected = buildBatchedMatMulExpected(inputA, inputB, batchSize, rowsM, sharedN, colsK);
+      const allMatch = arraysAlmostEqual(output, expected, 1e-4);
+
+      const status = document.createElement("span");
+      status.className = `pill ${allMatch ? "good" : "warn"}`;
+      status.textContent = allMatch ? "Accepted" : "Wrong Answer";
+      summary.appendChild(status);
+
+      const shape = document.createElement("span");
+      shape.className = "pill";
+      shape.textContent = `Shape: ${batchSize} x ${rowsM} x ${colsK}`;
+      summary.appendChild(shape);
+
+      const shared = document.createElement("span");
+      shared.className = "pill";
+      shared.textContent = `Shared N: ${sharedN}`;
+      summary.appendChild(shared);
+
+      vector.textContent = `C = ${formatTensorMultiline(output, batchSize, rowsM, colsK)}`;
+
+      const actualBatches = buildTensorSlices(output, batchSize, rowsM, colsK);
+      const expectedBatches = buildTensorSlices(expected, batchSize, rowsM, colsK);
+      for (let batch = 0; batch < batchSize; batch += 1) {
+        const item = document.createElement("li");
+        item.className = "result-item";
+        item.innerHTML =
+          `<strong>Batch ${batch}</strong>` +
+          `actual=${formatMatrixInline(actualBatches[batch], rowsM, colsK)}, ` +
+          `expected=${formatMatrixInline(expectedBatches[batch], rowsM, colsK)}`;
+        list.appendChild(item);
+      }
     }
 
     function renderMseResults(inputA, inputB, output) {
@@ -7032,6 +7627,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
     }
 
+    function renderLinearSelfAttentionResults(inputQ, inputK, inputV, rowsM, featureD, output) {
+      const expected = buildLinearSelfAttentionExpected(inputQ, inputK, inputV, rowsM, featureD);
+      renderMatrixJudgeResults(output, expected, rowsM, featureD, "output", ["Reference: CPU linear attention"], 1e-4);
+    }
+
     function renderAlibiAttentionResults(inputQ, inputK, inputV, rowsM, sharedN, featureD, alpha, output) {
       const summary = document.getElementById("result-summary");
       const list = document.getElementById("result-list");
@@ -7117,6 +7717,16 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         [`N: ${inputA.length}`, `lo: ${formatNumber(lowerBound)}`, `hi: ${formatNumber(upperBound)}`],
         1e-4
       );
+    }
+
+    function renderRotaryEmbeddingResults(inputQ, cos, sin, rowsM, featureD, output) {
+      const expected = buildRotaryEmbeddingExpected(inputQ, cos, sin, rowsM, featureD);
+      renderMatrixJudgeResults(output, expected, rowsM, featureD, "output", ["Reference: CPU RoPE"], 1e-4);
+    }
+
+    function renderWeightDequantizationResults(inputA, inputB, rowsM, colsN, tileSize, output) {
+      const expected = buildWeightDequantizationExpected(inputA, inputB, rowsM, colsN, tileSize);
+      renderMatrixJudgeResults(output, expected, rowsM, colsN, "Y", [`Tile Size: ${tileSize}`], 1e-4);
     }
 
     function renderMatrixPowerResults(inputA, matrixSize, power, output) {
@@ -7588,6 +8198,135 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         }
 
         renderMatrixResults(inputA, inputB, rowsM, sharedN, colsK, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+      }
+    }
+
+    function runSparseMatVec() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsM = parsePositiveInt(document.getElementById("matrix-m").value);
+      const colsN = parsePositiveInt(document.getElementById("matrix-n").value);
+      const nnz = parseInteger(document.getElementById("matrix-k").value);
+
+      if (rowsM === null || colsN === null || nnz === null || nnz < 0) {
+        pushLog("M and N must be positive integers, and nnz must be non-negative.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+
+      if (inputA.length !== rowsM * colsN) {
+        pushLog("Matrix A length does not match M x N.", "stderr");
+        return;
+      }
+
+      if (inputB.length !== colsN) {
+        pushLog("Vector x length does not match N.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_sparse_matvec",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length, rowsM, colsN, nnz]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderSparseMatVecResults(inputA, inputB, rowsM, colsN, nnz, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+      }
+    }
+
+    function runBatchedMatrixMultiplication() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const batchSize = parsePositiveInt(document.getElementById("matrix-m").value);
+      const rowsM = parsePositiveInt(document.getElementById("matrix-n").value);
+      const sharedN = parsePositiveInt(document.getElementById("matrix-k").value);
+      const colsK = parsePositiveInt(document.getElementById("matrix-l").value);
+
+      if (batchSize === null || rowsM === null || sharedN === null || colsK === null) {
+        pushLog("BATCH, M, N, and K must all be positive integers.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+
+      if (inputA.length !== batchSize * rowsM * sharedN) {
+        pushLog("Tensor A length does not match BATCH x M x N.", "stderr");
+        return;
+      }
+
+      if (inputB.length !== batchSize * sharedN * colsK) {
+        pushLog("Tensor B length does not match BATCH x N x K.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_batched_matrix_multiplication",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length, batchSize, rowsM, sharedN, colsK]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderBatchedMatMulResults(inputA, inputB, batchSize, rowsM, sharedN, colsK, output);
         pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
       } finally {
         window.Module._free(inputAPtr);
@@ -8426,6 +9165,132 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
     }
 
+    function runLinearSelfAttention() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsM = parsePositiveInt(document.getElementById("matrix-m").value);
+      const featureD = parsePositiveInt(document.getElementById("matrix-n").value);
+      if (rowsM === null || featureD === null) {
+        pushLog("M and d must both be positive integers.", "stderr");
+        return;
+      }
+
+      const inputQ = parseFloatList(document.getElementById("input-a").value);
+      const inputK = parseFloatList(document.getElementById("input-b").value);
+      const inputV = parseFloatList(document.getElementById("input-c").value);
+      const expectedLength = rowsM * featureD;
+
+      if (inputQ.length !== expectedLength || inputK.length !== expectedLength || inputV.length !== expectedLength) {
+        pushLog("Q, K, and V must each match M x d.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputQBuffer = new Float32Array(inputQ);
+      const inputKBuffer = new Float32Array(inputK);
+      const inputVBuffer = new Float32Array(inputV);
+      const inputQPtr = window.Module._malloc(inputQBuffer.byteLength);
+      const inputKPtr = window.Module._malloc(inputKBuffer.byteLength);
+      const inputVPtr = window.Module._malloc(inputVBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputQBuffer, inputQPtr >> 2);
+        window.Module.HEAPF32.set(inputKBuffer, inputKPtr >> 2);
+        window.Module.HEAPF32.set(inputVBuffer, inputVPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_linear_self_attention",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputQPtr, inputQ.length, inputKPtr, inputK.length, inputVPtr, inputV.length, rowsM, featureD]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderLinearSelfAttentionResults(inputQ, inputK, inputV, rowsM, featureD, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputQPtr);
+        window.Module._free(inputKPtr);
+        window.Module._free(inputVPtr);
+      }
+    }
+
+    function runRotaryEmbedding() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsM = parsePositiveInt(document.getElementById("matrix-m").value);
+      const featureD = parsePositiveInt(document.getElementById("matrix-n").value);
+      if (rowsM === null || featureD === null || (featureD % 2) !== 0) {
+        pushLog("M must be positive and D must be a positive even integer.", "stderr");
+        return;
+      }
+
+      const inputQ = parseFloatList(document.getElementById("input-a").value);
+      const cos = parseFloatList(document.getElementById("input-b").value);
+      const sin = parseFloatList(document.getElementById("input-c").value);
+      const expectedLength = rowsM * featureD;
+
+      if (inputQ.length !== expectedLength || cos.length !== expectedLength || sin.length !== expectedLength) {
+        pushLog("Q, cos, and sin must each match M x D.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputQBuffer = new Float32Array(inputQ);
+      const cosBuffer = new Float32Array(cos);
+      const sinBuffer = new Float32Array(sin);
+      const inputQPtr = window.Module._malloc(inputQBuffer.byteLength);
+      const cosPtr = window.Module._malloc(cosBuffer.byteLength);
+      const sinPtr = window.Module._malloc(sinBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputQBuffer, inputQPtr >> 2);
+        window.Module.HEAPF32.set(cosBuffer, cosPtr >> 2);
+        window.Module.HEAPF32.set(sinBuffer, sinPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_rotary_embedding",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputQPtr, inputQ.length, cosPtr, cos.length, sinPtr, sin.length, rowsM, featureD]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderRotaryEmbeddingResults(inputQ, cos, sin, rowsM, featureD, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputQPtr);
+        window.Module._free(cosPtr);
+        window.Module._free(sinPtr);
+      }
+    }
+
     function runSlidingWindowAttention() {
       if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
         return;
@@ -9024,6 +9889,73 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
       } finally {
         window.Module._free(inputPtr);
+      }
+    }
+
+    function runWeightDequantization() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsM = parsePositiveInt(document.getElementById("matrix-m").value);
+      const colsN = parsePositiveInt(document.getElementById("matrix-n").value);
+      const tileSize = parsePositiveInt(document.getElementById("matrix-k").value);
+      if (rowsM === null || colsN === null || tileSize === null) {
+        pushLog("M, N, and TILE_SIZE must all be positive integers.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+      const expectedMatrixLength = rowsM * colsN;
+      const scaleRows = Math.ceil(rowsM / tileSize);
+      const scaleCols = Math.ceil(colsN / tileSize);
+      const expectedScaleLength = scaleRows * scaleCols;
+
+      if (inputA.length !== expectedMatrixLength) {
+        pushLog("Matrix X length does not match M x N.", "stderr");
+        return;
+      }
+
+      if (inputB.length !== expectedScaleLength) {
+        pushLog("Scale matrix length does not match ceil(M / TILE_SIZE) x ceil(N / TILE_SIZE).", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_weight_dequantization",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length, rowsM, colsN, tileSize]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderWeightDequantizationResults(inputA, inputB, rowsM, colsN, tileSize, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
       }
     }
 
@@ -9692,6 +10624,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         return;
       }
 
+      if (problem.kind === "batched-matrix-multiplication") {
+        runBatchedMatrixMultiplication();
+        return;
+      }
+
       if (problem.kind === "matrix-transpose") {
         runMatrixTranspose();
         return;
@@ -9717,6 +10654,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         return;
       }
 
+      if (problem.kind === "sparse-matrix-vector-multiplication") {
+        runSparseMatVec();
+        return;
+      }
+
       if (problem.kind === "rms-normalization") {
         runRmsNormalization();
         return;
@@ -9739,6 +10681,16 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
       if (problem.kind === "causal-self-attention") {
         runCausalSelfAttention();
+        return;
+      }
+
+      if (problem.kind === "linear-self-attention") {
+        runLinearSelfAttention();
+        return;
+      }
+
+      if (problem.kind === "rotary-positional-embedding") {
+        runRotaryEmbedding();
         return;
       }
 
@@ -9849,6 +10801,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
       if (problem.kind === "value-clipping") {
         runValueClipping();
+        return;
+      }
+
+      if (problem.kind === "weight-dequantization") {
+        runWeightDequantization();
         return;
       }
 

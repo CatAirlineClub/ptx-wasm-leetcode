@@ -427,6 +427,294 @@ public:
         return true;
     }
 
+    bool runSparseMatVecDemo(const std::string& kernelName,
+                             const float* inputA,
+                             int inputALen,
+                             const float* inputB,
+                             int inputBLen,
+                             int rowsM,
+                             int colsN,
+                             int nnz) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputA == nullptr || inputB == nullptr) {
+            lastError_ = "Input buffers must not be null.";
+            return false;
+        }
+
+        if (rowsM <= 0 || colsN <= 0 || nnz < 0) {
+            lastError_ = "M and N must be positive integers, and nnz must be non-negative.";
+            return false;
+        }
+
+        const size_t expectedALen =
+            static_cast<size_t>(rowsM) * static_cast<size_t>(colsN);
+        const size_t expectedBLen = static_cast<size_t>(colsN);
+        const size_t outputLen = static_cast<size_t>(rowsM);
+
+        if (static_cast<size_t>(inputALen) != expectedALen) {
+            lastError_ = "Matrix A does not match the provided M x N dimensions.";
+            return false;
+        }
+
+        if (static_cast<size_t>(inputBLen) != expectedBLen) {
+            lastError_ = "Vector x does not match the provided N dimension.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isMatrixMultiplySignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u32, .u32, .u32), such as sparse matrix-vector multiplication.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputABytes = expectedALen * sizeof(float);
+        const size_t inputBBytes = expectedBLen * sizeof(float);
+        const size_t outputBytes = outputLen * sizeof(float);
+        const std::vector<float> zeroOutput(outputLen, 0.0f);
+        const CUdeviceptr inputAPtr = vm->allocateMemory(inputABytes);
+        const CUdeviceptr inputBPtr = vm->allocateMemory(inputBBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputAPtr, inputA, inputABytes)) {
+            lastError_ = "Failed to copy Matrix A into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputBPtr, inputB, inputBBytes)) {
+            lastError_ = "Failed to copy vector x into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output vector in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputAPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({inputBPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({outputPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({static_cast<CUdeviceptr>(rowsM), kernel->parameters[3].size, kernel->parameters[3].offset});
+        params.push_back({static_cast<CUdeviceptr>(colsN), kernel->parameters[4].size, kernel->parameters[4].offset});
+        params.push_back({static_cast<CUdeviceptr>(nnz), kernel->parameters[5].size, kernel->parameters[5].offset});
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(outputLen, 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the sparse matvec output failed.";
+            lastResult_.clear();
+            return false;
+        }
+
+        return true;
+    }
+
+    bool runBatchedMatrixMultiplicationDemo(const std::string& kernelName,
+                                            const float* inputA,
+                                            int inputALen,
+                                            const float* inputB,
+                                            int inputBLen,
+                                            int batchSize,
+                                            int rowsM,
+                                            int sharedN,
+                                            int colsK) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputA == nullptr || inputB == nullptr) {
+            lastError_ = "Input buffers must not be null.";
+            return false;
+        }
+
+        if (batchSize <= 0 || rowsM <= 0 || sharedN <= 0 || colsK <= 0) {
+            lastError_ = "BATCH, M, N, and K must all be positive integers.";
+            return false;
+        }
+
+        const size_t expectedALen =
+            static_cast<size_t>(batchSize) * static_cast<size_t>(rowsM) * static_cast<size_t>(sharedN);
+        const size_t expectedBLen =
+            static_cast<size_t>(batchSize) * static_cast<size_t>(sharedN) * static_cast<size_t>(colsK);
+        const size_t outputLen =
+            static_cast<size_t>(batchSize) * static_cast<size_t>(rowsM) * static_cast<size_t>(colsK);
+
+        if (static_cast<size_t>(inputALen) != expectedALen) {
+            lastError_ = "Tensor A does not match the provided BATCH x M x N dimensions.";
+            return false;
+        }
+
+        if (static_cast<size_t>(inputBLen) != expectedBLen) {
+            lastError_ = "Tensor B does not match the provided BATCH x N x K dimensions.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isThreePointerFourIntSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u32, .u32, .u32, .u32), such as batched matrix multiplication.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputABytes = expectedALen * sizeof(float);
+        const size_t inputBBytes = expectedBLen * sizeof(float);
+        const size_t outputBytes = outputLen * sizeof(float);
+        const std::vector<float> zeroOutput(outputLen, 0.0f);
+        const CUdeviceptr inputAPtr = vm->allocateMemory(inputABytes);
+        const CUdeviceptr inputBPtr = vm->allocateMemory(inputBBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputAPtr, inputA, inputABytes)) {
+            lastError_ = "Failed to copy Tensor A into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputBPtr, inputB, inputBBytes)) {
+            lastError_ = "Failed to copy Tensor B into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize Tensor C in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputAPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({inputBPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({outputPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({static_cast<CUdeviceptr>(batchSize), kernel->parameters[3].size, kernel->parameters[3].offset});
+        params.push_back({static_cast<CUdeviceptr>(rowsM), kernel->parameters[4].size, kernel->parameters[4].offset});
+        params.push_back({static_cast<CUdeviceptr>(sharedN), kernel->parameters[5].size, kernel->parameters[5].offset});
+        params.push_back({static_cast<CUdeviceptr>(colsK), kernel->parameters[6].size, kernel->parameters[6].offset});
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(outputLen, 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the batched matmul output failed.";
+            lastResult_.clear();
+            return false;
+        }
+
+        return true;
+    }
+
     bool runMatrixAdditionDemo(const std::string& kernelName,
                                const float* inputA,
                                int inputALen,
@@ -2297,6 +2585,290 @@ public:
         return true;
     }
 
+    bool runLinearSelfAttentionDemo(const std::string& kernelName,
+                                    const float* inputQ,
+                                    int inputQLen,
+                                    const float* inputK,
+                                    int inputKLen,
+                                    const float* inputV,
+                                    int inputVLen,
+                                    int rowsM,
+                                    int featureD) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputQ == nullptr || inputK == nullptr || inputV == nullptr) {
+            lastError_ = "Q, K, and V buffers must not be null.";
+            return false;
+        }
+
+        if (rowsM <= 0 || featureD <= 0) {
+            lastError_ = "M and d must both be positive integers.";
+            return false;
+        }
+
+        const size_t expectedLen =
+            static_cast<size_t>(rowsM) * static_cast<size_t>(featureD);
+        if (static_cast<size_t>(inputQLen) != expectedLen ||
+            static_cast<size_t>(inputKLen) != expectedLen ||
+            static_cast<size_t>(inputVLen) != expectedLen) {
+            lastError_ = "Q, K, and V must all match the provided M x d dimensions.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isFourPointerTwoIntSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u64, .u32, .u32), such as linear self-attention.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = expectedLen * sizeof(float);
+        const size_t outputBytes = inputBytes;
+        const std::vector<float> zeroOutput(expectedLen, 0.0f);
+        const CUdeviceptr inputQPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr inputKPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr inputVPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputQPtr, inputQ, inputBytes)) {
+            lastError_ = "Failed to copy Matrix Q into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputKPtr, inputK, inputBytes)) {
+            lastError_ = "Failed to copy Matrix K into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputVPtr, inputV, inputBytes)) {
+            lastError_ = "Failed to copy Matrix V into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output matrix in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputQPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({inputKPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({inputVPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({outputPtr, kernel->parameters[3].size, kernel->parameters[3].offset});
+        params.push_back({static_cast<CUdeviceptr>(rowsM), kernel->parameters[4].size, kernel->parameters[4].offset});
+        params.push_back({static_cast<CUdeviceptr>(featureD), kernel->parameters[5].size, kernel->parameters[5].offset});
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(expectedLen, 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the linear attention output failed.";
+            lastResult_.clear();
+            return false;
+        }
+
+        return true;
+    }
+
+    bool runRotaryEmbeddingDemo(const std::string& kernelName,
+                                const float* inputQ,
+                                int inputQLen,
+                                const float* inputCos,
+                                int inputCosLen,
+                                const float* inputSin,
+                                int inputSinLen,
+                                int rowsM,
+                                int featureD) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputQ == nullptr || inputCos == nullptr || inputSin == nullptr) {
+            lastError_ = "Q, cos, and sin buffers must not be null.";
+            return false;
+        }
+
+        if (rowsM <= 0 || featureD <= 0 || (featureD % 2) != 0) {
+            lastError_ = "M must be positive and D must be a positive even integer.";
+            return false;
+        }
+
+        const size_t expectedLen =
+            static_cast<size_t>(rowsM) * static_cast<size_t>(featureD);
+        if (static_cast<size_t>(inputQLen) != expectedLen ||
+            static_cast<size_t>(inputCosLen) != expectedLen ||
+            static_cast<size_t>(inputSinLen) != expectedLen) {
+            lastError_ = "Q, cos, and sin must all match the provided M x D dimensions.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isFourPointerTwoIntSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u64, .u32, .u32), such as rotary positional embedding.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = expectedLen * sizeof(float);
+        const size_t outputBytes = inputBytes;
+        const std::vector<float> zeroOutput(expectedLen, 0.0f);
+        const CUdeviceptr inputQPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr inputCosPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr inputSinPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputQPtr, inputQ, inputBytes)) {
+            lastError_ = "Failed to copy Matrix Q into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputCosPtr, inputCos, inputBytes)) {
+            lastError_ = "Failed to copy Matrix cos into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputSinPtr, inputSin, inputBytes)) {
+            lastError_ = "Failed to copy Matrix sin into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output matrix in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputQPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({inputCosPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({inputSinPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({outputPtr, kernel->parameters[3].size, kernel->parameters[3].offset});
+        params.push_back({static_cast<CUdeviceptr>(rowsM), kernel->parameters[4].size, kernel->parameters[4].offset});
+        params.push_back({static_cast<CUdeviceptr>(featureD), kernel->parameters[5].size, kernel->parameters[5].offset});
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(expectedLen, 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the rotary embedding output failed.";
+            lastResult_.clear();
+            return false;
+        }
+
+        return true;
+    }
+
     bool runMultiHeadAttentionDemo(const std::string& kernelName,
                                    const float* inputQ,
                                    int inputQLen,
@@ -2903,6 +3475,152 @@ public:
         lastResult_.assign(expectedOutputLen, 0.0f);
         if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
             lastError_ = "Kernel executed, but reading the ALiBi attention output failed.";
+            lastResult_.clear();
+            return false;
+        }
+
+        return true;
+    }
+
+    bool runWeightDequantizationDemo(const std::string& kernelName,
+                                     const float* inputA,
+                                     int inputALen,
+                                     const float* inputB,
+                                     int inputBLen,
+                                     int rowsM,
+                                     int colsN,
+                                     int tileSize) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (inputA == nullptr || inputB == nullptr) {
+            lastError_ = "Input buffers must not be null.";
+            return false;
+        }
+
+        if (rowsM <= 0 || colsN <= 0 || tileSize <= 0) {
+            lastError_ = "M, N, and TILE_SIZE must all be positive integers.";
+            return false;
+        }
+
+        const size_t expectedALen =
+            static_cast<size_t>(rowsM) * static_cast<size_t>(colsN);
+        const size_t scaleRows =
+            (static_cast<size_t>(rowsM) + static_cast<size_t>(tileSize) - 1u) / static_cast<size_t>(tileSize);
+        const size_t scaleCols =
+            (static_cast<size_t>(colsN) + static_cast<size_t>(tileSize) - 1u) / static_cast<size_t>(tileSize);
+        const size_t expectedBLen = scaleRows * scaleCols;
+        const size_t outputLen = expectedALen;
+
+        if (static_cast<size_t>(inputALen) != expectedALen) {
+            lastError_ = "Matrix X does not match the provided M x N dimensions.";
+            return false;
+        }
+
+        if (static_cast<size_t>(inputBLen) != expectedBLen) {
+            lastError_ = "Scale matrix S does not match ceil(M / TILE_SIZE) x ceil(N / TILE_SIZE).";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isMatrixMultiplySignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u32, .u32, .u32), such as weight dequantization.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputABytes = expectedALen * sizeof(float);
+        const size_t inputBBytes = expectedBLen * sizeof(float);
+        const size_t outputBytes = outputLen * sizeof(float);
+        const std::vector<float> zeroOutput(outputLen, 0.0f);
+        const CUdeviceptr inputAPtr = vm->allocateMemory(inputABytes);
+        const CUdeviceptr inputBPtr = vm->allocateMemory(inputBBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputAPtr, inputA, inputABytes)) {
+            lastError_ = "Failed to copy Matrix X into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(inputBPtr, inputB, inputBBytes)) {
+            lastError_ = "Failed to copy Matrix S into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output matrix in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputAPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({inputBPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({outputPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({static_cast<CUdeviceptr>(rowsM), kernel->parameters[3].size, kernel->parameters[3].offset});
+        params.push_back({static_cast<CUdeviceptr>(colsN), kernel->parameters[4].size, kernel->parameters[4].offset});
+        params.push_back({static_cast<CUdeviceptr>(tileSize), kernel->parameters[5].size, kernel->parameters[5].offset});
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(outputLen, 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the dequantized output failed.";
             lastResult_.clear();
             return false;
         }
@@ -5068,6 +5786,24 @@ private:
                isScalar32BitInteger(kernel.parameters[4]);
     }
 
+    bool isThreePointerFourIntSignature(const PTXFunction& kernel) const {
+        if (kernel.parameters.size() != 7) {
+            return false;
+        }
+
+        return kernel.parameters[0].isPointer &&
+               kernel.parameters[1].isPointer &&
+               kernel.parameters[2].isPointer &&
+               !kernel.parameters[3].isPointer &&
+               !kernel.parameters[4].isPointer &&
+               !kernel.parameters[5].isPointer &&
+               !kernel.parameters[6].isPointer &&
+               isScalar32BitInteger(kernel.parameters[3]) &&
+               isScalar32BitInteger(kernel.parameters[4]) &&
+               isScalar32BitInteger(kernel.parameters[5]) &&
+               isScalar32BitInteger(kernel.parameters[6]);
+    }
+
     bool isTwoPointerTwoFloatOneIntSignature(const PTXFunction& kernel) const {
         if (kernel.parameters.size() != 5) {
             return false;
@@ -5466,10 +6202,10 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_merge_sorted(const char* kernelName,
 }
 
 EMSCRIPTEN_KEEPALIVE int ptxvm_run_matrix_multiplication(const char* kernelName,
-                                                         const float* inputA,
-                                                         int inputALen,
-                                                         const float* inputB,
-                                                         int inputBLen,
+                                                        const float* inputA,
+                                                        int inputALen,
+                                                        const float* inputB,
+                                                        int inputBLen,
                                                          int rowsM,
                                                          int sharedN,
                                                          int colsK) {
@@ -5480,6 +6216,48 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_matrix_multiplication(const char* kernelName,
         inputALen,
         inputB,
         inputBLen,
+        rowsM,
+        sharedN,
+        colsK) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_sparse_matvec(const char* kernelName,
+                                                 const float* inputA,
+                                                 int inputALen,
+                                                 const float* inputB,
+                                                 int inputBLen,
+                                                 int rowsM,
+                                                 int colsN,
+                                                 int nnz) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runSparseMatVecDemo(
+        chosenKernel,
+        inputA,
+        inputALen,
+        inputB,
+        inputBLen,
+        rowsM,
+        colsN,
+        nnz) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_batched_matrix_multiplication(const char* kernelName,
+                                                                 const float* inputA,
+                                                                 int inputALen,
+                                                                 const float* inputB,
+                                                                 int inputBLen,
+                                                                 int batchSize,
+                                                                 int rowsM,
+                                                                 int sharedN,
+                                                                 int colsK) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runBatchedMatrixMultiplicationDemo(
+        chosenKernel,
+        inputA,
+        inputALen,
+        inputB,
+        inputBLen,
+        batchSize,
         rowsM,
         sharedN,
         colsK) ? 1 : 0;
@@ -5591,6 +6369,50 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_softmax_attention(const char* kernelName,
         featureD) ? 1 : 0;
 }
 
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_linear_self_attention(const char* kernelName,
+                                                         const float* inputQ,
+                                                         int inputQLen,
+                                                         const float* inputK,
+                                                         int inputKLen,
+                                                         const float* inputV,
+                                                         int inputVLen,
+                                                         int rowsM,
+                                                         int featureD) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runLinearSelfAttentionDemo(
+        chosenKernel,
+        inputQ,
+        inputQLen,
+        inputK,
+        inputKLen,
+        inputV,
+        inputVLen,
+        rowsM,
+        featureD) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_rotary_embedding(const char* kernelName,
+                                                    const float* inputQ,
+                                                    int inputQLen,
+                                                    const float* inputCos,
+                                                    int inputCosLen,
+                                                    const float* inputSin,
+                                                    int inputSinLen,
+                                                    int rowsM,
+                                                    int featureD) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runRotaryEmbeddingDemo(
+        chosenKernel,
+        inputQ,
+        inputQLen,
+        inputCos,
+        inputCosLen,
+        inputSin,
+        inputSinLen,
+        rowsM,
+        featureD) ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE int ptxvm_run_multi_head_attention(const char* kernelName,
                                                         const float* inputQ,
                                                         int inputQLen,
@@ -5699,6 +6521,26 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_value_clipping(const char* kernelName,
         inputLen,
         lowerBound,
         upperBound) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_weight_dequantization(const char* kernelName,
+                                                         const float* inputA,
+                                                         int inputALen,
+                                                         const float* inputB,
+                                                         int inputBLen,
+                                                         int rowsM,
+                                                         int colsN,
+                                                         int tileSize) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runWeightDequantizationDemo(
+        chosenKernel,
+        inputA,
+        inputALen,
+        inputB,
+        inputBLen,
+        rowsM,
+        colsN,
+        tileSize) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int ptxvm_run_color_inversion(const char* kernelName,

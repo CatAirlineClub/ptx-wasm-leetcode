@@ -1910,6 +1910,78 @@ extern "C" __global__ void solve(const int* input,
           }
         ]
       },
+      14: {
+        kind: "multi-agent-simulation",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input and output pointers plus one 32-bit N scalar. The input is treated as N agents packed as [x, y, vx, vy], and the final agents_next buffer must contain the next simulation step.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full boids update directly in solve.",
+        testcaseHint: "Paste a flat float array of agents and provide N. Each agent occupies four floats: x, y, vx, vy.",
+        testcaseHelp: "Input length must equal 4 x N. The browser judge compares the full agents_next buffer against a CPU boids reference with radius 5.0 and alpha 0.05.",
+        resultTitle: "Next Agent State",
+        resultSubtitle: "The final result must be stored in the agents_next buffer as flat [x, y, vx, vy] tuples.",
+        signatureHint: `extern "C" __global__ void solve(const float* agents, float* agents_next, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* agents, float* agents_next, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < N; i = i + 1) {
+            float xi = agents[i * 4 + 0];
+            float yi = agents[i * 4 + 1];
+            float vxi = agents[i * 4 + 2];
+            float vyi = agents[i * 4 + 3];
+
+            float avgVx = 0.0f;
+            float avgVy = 0.0f;
+            int neighbors = 0;
+
+            for (int j = 0; j < N; j = j + 1) {
+                if (i == j) {
+                    continue;
+                }
+
+                float dx = xi - agents[j * 4 + 0];
+                float dy = yi - agents[j * 4 + 1];
+                if (dx * dx + dy * dy <= 25.0f) {
+                    avgVx += agents[j * 4 + 2];
+                    avgVy += agents[j * 4 + 3];
+                    neighbors += 1;
+                }
+            }
+
+            if (neighbors > 0) {
+                avgVx = avgVx / (float)neighbors;
+                avgVy = avgVy / (float)neighbors;
+            } else {
+                avgVx = vxi;
+                avgVy = vyi;
+            }
+
+            float nextVx = vxi + 0.05f * (avgVx - vxi);
+            float nextVy = vyi + 0.05f * (avgVy - vyi);
+            agents_next[i * 4 + 0] = xi + nextVx;
+            agents_next[i * 4 + 1] = yi + nextVy;
+            agents_next[i * 4 + 2] = nextVx;
+            agents_next[i * 4 + 3] = nextVy;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            agentCount: 2,
+            inputA: [0.0, 0.0, 1.0, 0.0, 3.0, 4.0, 0.0, -1.0],
+            expected: [1.0, 0.0, 1.0, 0.0, 3.0, 3.0, 0.0, -1.0]
+          },
+          {
+            label: "Example 2",
+            agentCount: 2,
+            inputA: [0.0, 0.0, 1.0, 2.0, 20.0, 20.0, -1.0, 0.0],
+            expected: [1.0, 2.0, 1.0, 2.0, 19.0, 20.0, -1.0, 0.0]
+          }
+        ]
+      },
       15: {
         kind: "sorting",
         supportsRun: true,
@@ -2573,6 +2645,131 @@ extern "C" __global__ void solve(const float* input, float* output, int N, int P
           }
         ]
       },
+      38: {
+        kind: "nearest-neighbor",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with points and indices pointers plus one 32-bit N scalar. The input is treated as N points packed as [x, y, z], and the final indices buffer must contain the nearest-neighbor index for each point.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes every nearest-neighbor index directly in solve.",
+        testcaseHint: "Paste a flat float array of 3D points and provide N. Each point occupies three floats: x, y, z.",
+        testcaseHelp: "Input length must equal 3 x N. The browser judge compares the full indices buffer against a CPU squared-distance nearest-neighbor reference.",
+        resultTitle: "Nearest Neighbor Indices",
+        resultSubtitle: "The final result must be stored in the indices buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* points, int* indices, int N) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const float* points, int* indices, int N) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < N; i = i + 1) {
+            float xi = points[i * 3 + 0];
+            float yi = points[i * 3 + 1];
+            float zi = points[i * 3 + 2];
+            int bestIndex = -1;
+            float bestDist = 1.0e30f;
+
+            for (int j = 0; j < N; j = j + 1) {
+                if (i == j) {
+                    continue;
+                }
+
+                float dx = xi - points[j * 3 + 0];
+                float dy = yi - points[j * 3 + 1];
+                float dz = zi - points[j * 3 + 2];
+                float dist = dx * dx + dy * dy + dz * dz;
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestIndex = j;
+                }
+            }
+
+            indices[i] = bestIndex;
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            pointCount: 3,
+            inputA: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 5.0, 5.0, 5.0],
+            expected: [1, 0, 1]
+          },
+          {
+            label: "Example 2",
+            pointCount: 4,
+            inputA: [0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 10.0, 0.0, 0.0, 9.0, 0.0, 0.0],
+            expected: [1, 0, 3, 2]
+          }
+        ]
+      },
+      40: {
+        kind: "batch-normalization",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with input, gamma, beta, and output pointers plus 32-bit N and C scalars and one float32 eps scalar. The input is treated as an N x C row-major matrix and the final output must contain the batch-normalized tensor.",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that computes the full batch-normalization forward pass directly in solve.",
+        testcaseHint: "Paste row-major input, gamma, and beta arrays, then provide N, C, and eps.",
+        testcaseHelp: "Input length must equal N x C, gamma and beta lengths must both equal C, and eps must be a finite float. The browser judge compares the full output matrix against a CPU batch-normalization reference.",
+        resultTitle: "BatchNorm Output",
+        resultSubtitle: "The final normalized tensor must be stored in the output buffer.",
+        signatureHint: `extern "C" __global__ void solve(const float* input, const float* gamma, const float* beta, float* output, int N, int C, float eps) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+#include <math.h>
+
+extern "C" __global__ void solve(const float* input,
+                                 const float* gamma,
+                                 const float* beta,
+                                 float* output,
+                                 int N,
+                                 int C,
+                                 float eps) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int col = 0; col < C; col = col + 1) {
+            float mean = 0.0f;
+            for (int row = 0; row < N; row = row + 1) {
+                mean += input[row * C + col];
+            }
+            mean = mean / (float)N;
+
+            float var = 0.0f;
+            for (int row = 0; row < N; row = row + 1) {
+                float delta = input[row * C + col] - mean;
+                var += delta * delta;
+            }
+            var = var / (float)N;
+
+            float invStd = 1.0f / sqrtf(var + eps);
+            for (int row = 0; row < N; row = row + 1) {
+                float normalized = (input[row * C + col] - mean) * invStd;
+                output[row * C + col] = gamma[col] * normalized + beta[col];
+            }
+        }
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rowsN: 3,
+            colsC: 2,
+            eps: 0.00001,
+            inputA: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            inputB: [1.0, 1.0],
+            inputC: [0.0, 0.0],
+            expected: [-1.224743, -1.224743, 0.0, 0.0, 1.224743, 1.224743]
+          },
+          {
+            label: "Example 2",
+            rowsN: 2,
+            colsC: 2,
+            eps: 0.00001,
+            inputA: [0.0, 1.0, 2.0, 3.0],
+            inputB: [2.0, 0.5],
+            inputC: [1.0, -1.0],
+            expected: [-0.99999, -1.5, 2.99999, -0.5]
+          }
+        ]
+      },
       43: {
         kind: "count-array",
         supportsRun: true,
@@ -2699,6 +2896,63 @@ extern "C" __global__ void solve(const int* input, int* output, int N, int M, in
           }
         ]
       },
+      46: {
+        kind: "bfs-shortest-path",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with integer grid and output pointers plus 32-bit rows, cols, start_row, start_col, end_row, and end_col scalars. The input is treated as a rows x cols row-major grid of 0/1 cells, and the final shortest-path length must be stored in output[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that performs the BFS directly in solve and writes the shortest path length into output[0].",
+        testcaseHint: "Paste a row-major 0/1 grid, then provide rows, cols, start_row, start_col, end_row, and end_col.",
+        testcaseHelp: "Input length must equal rows x cols. The browser judge compares output[0] against a CPU 4-direction BFS reference and expects -1 when no path exists.",
+        resultTitle: "Shortest Path Output",
+        resultSubtitle: "The final shortest path length must be stored in output[0].",
+        signatureHint: `extern "C" __global__ void solve(const int* grid, int* result, int rows, int cols, int start_row, int start_col, int end_row, int end_col) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const int* grid,
+                                 int* result,
+                                 int rows,
+                                 int cols,
+                                 int start_row,
+                                 int start_col,
+                                 int end_row,
+                                 int end_col) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        if (start_row == end_row && start_col == end_col) {
+            result[0] = 0;
+            return;
+        }
+
+        result[0] = -1;
+        // TODO: perform BFS on the rows x cols grid and write the shortest path length into result[0].
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            rows: 4,
+            cols: 4,
+            startRow: 0,
+            startCol: 0,
+            endRow: 3,
+            endCol: 3,
+            inputA: [0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0],
+            expected: 6
+          },
+          {
+            label: "Example 2",
+            rows: 3,
+            cols: 3,
+            startRow: 0,
+            startCol: 0,
+            endRow: 0,
+            endCol: 2,
+            inputA: [0, 1, 0, 1, 1, 1, 0, 0, 0],
+            expected: -1
+          }
+        ]
+      },
       47: {
         kind: "subarray-sum",
         supportsRun: true,
@@ -2793,6 +3047,60 @@ extern "C" __global__ void solve(const int* input,
             startCol: 1,
             endCol: 1,
             expected: 10
+          }
+        ]
+      },
+      49: {
+        kind: "subarray-sum-3d",
+        supportsRun: true,
+        supportsCudaCompile: true,
+        judgeContract: "The browser judge expects a PTX entry kernel with integer input and output pointers plus 32-bit N, M, K, S_DEP, E_DEP, S_ROW, E_ROW, S_COL, and E_COL scalars. The input is treated as an N x M x K row-major volume, and the final inclusive subvolume sum must be stored in output[0].",
+        submissionHint: "Submit a single extern \"C\" __global__ solve kernel that sums the requested inclusive subvolume directly in solve.",
+        testcaseHint: "Paste a flat int volume, then provide dimensions in Input B as N, M, K and bounds in Input C as S_DEP, E_DEP, S_ROW, E_ROW, S_COL, E_COL.",
+        testcaseHelp: "Input length must equal N x M x K. Input B must contain exactly three integers and Input C must contain exactly six integers describing valid inclusive bounds. The browser judge compares output[0] against a CPU subvolume sum.",
+        resultTitle: "3D Subarray Sum Output",
+        resultSubtitle: "The final subvolume sum must be stored in output[0].",
+        signatureHint: `extern "C" __global__ void solve(const int* input, int* output, int N, int M, int K, int S_DEP, int E_DEP, int S_ROW, int E_ROW, int S_COL, int E_COL) {`,
+        editorStarterCode: `#include <cuda_runtime.h>
+
+extern "C" __global__ void solve(const int* input,
+                                 int* output,
+                                 int N,
+                                 int M,
+                                 int K,
+                                 int S_DEP,
+                                 int E_DEP,
+                                 int S_ROW,
+                                 int E_ROW,
+                                 int S_COL,
+                                 int E_COL) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int sum = 0;
+        for (int dep = S_DEP; dep <= E_DEP; dep = dep + 1) {
+            for (int row = S_ROW; row <= E_ROW; row = row + 1) {
+                for (int col = S_COL; col <= E_COL; col = col + 1) {
+                    // TODO: accumulate input[(dep * M + row) * K + col] into sum.
+                }
+            }
+        }
+        output[0] = sum;
+    }
+}
+`,
+        examples: [
+          {
+            label: "Example 1",
+            inputA: [1, 2, 3, 4, 5, 1, 1, 1, 1, 2, 2, 2],
+            inputB: [2, 2, 3],
+            inputC: [0, 1, 0, 0, 1, 2],
+            expected: 7
+          },
+          {
+            label: "Example 2",
+            inputA: [5, 10, 5, 2, 2, 2],
+            inputB: [1, 3, 2],
+            inputC: [0, 0, 0, 2, 1, 1],
+            expected: 14
           }
         ]
       },
@@ -4694,6 +5002,175 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       return best;
     }
 
+    function buildMultiAgentSimulationExpected(inputA, agentCount) {
+      const output = new Array(agentCount * 4).fill(0.0);
+      for (let i = 0; i < agentCount; i += 1) {
+        const base = i * 4;
+        const xi = inputA[base];
+        const yi = inputA[base + 1];
+        const vxi = inputA[base + 2];
+        const vyi = inputA[base + 3];
+
+        let avgVx = 0.0;
+        let avgVy = 0.0;
+        let neighbors = 0;
+        for (let j = 0; j < agentCount; j += 1) {
+          if (i === j) {
+            continue;
+          }
+
+          const otherBase = j * 4;
+          const dx = xi - inputA[otherBase];
+          const dy = yi - inputA[otherBase + 1];
+          if (dx * dx + dy * dy <= 25.0) {
+            avgVx += inputA[otherBase + 2];
+            avgVy += inputA[otherBase + 3];
+            neighbors += 1;
+          }
+        }
+
+        if (neighbors > 0) {
+          avgVx /= neighbors;
+          avgVy /= neighbors;
+        } else {
+          avgVx = vxi;
+          avgVy = vyi;
+        }
+
+        const nextVx = vxi + 0.05 * (avgVx - vxi);
+        const nextVy = vyi + 0.05 * (avgVy - vyi);
+        output[base] = xi + nextVx;
+        output[base + 1] = yi + nextVy;
+        output[base + 2] = nextVx;
+        output[base + 3] = nextVy;
+      }
+
+      return output;
+    }
+
+    function buildNearestNeighborExpected(inputA, pointCount) {
+      const output = new Array(pointCount).fill(-1);
+      for (let i = 0; i < pointCount; i += 1) {
+        const base = i * 3;
+        const xi = inputA[base];
+        const yi = inputA[base + 1];
+        const zi = inputA[base + 2];
+        let bestIndex = -1;
+        let bestDistance = Infinity;
+
+        for (let j = 0; j < pointCount; j += 1) {
+          if (i === j) {
+            continue;
+          }
+
+          const otherBase = j * 3;
+          const dx = xi - inputA[otherBase];
+          const dy = yi - inputA[otherBase + 1];
+          const dz = zi - inputA[otherBase + 2];
+          const distance = dx * dx + dy * dy + dz * dz;
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = j;
+          }
+        }
+
+        output[i] = bestIndex;
+      }
+
+      return output;
+    }
+
+    function buildBatchNormalizationExpected(inputA, gamma, beta, rowsN, colsC, eps) {
+      const output = new Array(rowsN * colsC).fill(0.0);
+      for (let col = 0; col < colsC; col += 1) {
+        let mean = 0.0;
+        for (let row = 0; row < rowsN; row += 1) {
+          mean += inputA[row * colsC + col];
+        }
+        mean /= rowsN;
+
+        let variance = 0.0;
+        for (let row = 0; row < rowsN; row += 1) {
+          const delta = inputA[row * colsC + col] - mean;
+          variance += delta * delta;
+        }
+        variance /= rowsN;
+
+        const invStd = 1.0 / Math.sqrt(variance + eps);
+        for (let row = 0; row < rowsN; row += 1) {
+          const normalized = (inputA[row * colsC + col] - mean) * invStd;
+          output[row * colsC + col] = gamma[col] * normalized + beta[col];
+        }
+      }
+
+      return output;
+    }
+
+    function buildBfsShortestPathExpected(inputA, rows, cols, startRow, startCol, endRow, endCol) {
+      if (startRow === endRow && startCol === endCol) {
+        return 0;
+      }
+
+      const distances = new Array(rows * cols).fill(-1);
+      const queue = new Array(rows * cols);
+      let head = 0;
+      let tail = 0;
+      const startIndex = startRow * cols + startCol;
+      distances[startIndex] = 0;
+      queue[tail] = startIndex;
+      tail += 1;
+
+      const deltas = [
+        [-1, 0],
+        [1, 0],
+        [0, -1],
+        [0, 1]
+      ];
+
+      while (head < tail) {
+        const index = queue[head];
+        head += 1;
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        const distance = distances[index];
+
+        for (const [dr, dc] of deltas) {
+          const nextRow = row + dr;
+          const nextCol = col + dc;
+          if (nextRow < 0 || nextRow >= rows || nextCol < 0 || nextCol >= cols) {
+            continue;
+          }
+
+          const nextIndex = nextRow * cols + nextCol;
+          if (inputA[nextIndex] !== 0 || distances[nextIndex] !== -1) {
+            continue;
+          }
+
+          if (nextRow === endRow && nextCol === endCol) {
+            return distance + 1;
+          }
+
+          distances[nextIndex] = distance + 1;
+          queue[tail] = nextIndex;
+          tail += 1;
+        }
+      }
+
+      return -1;
+    }
+
+    function buildSubarraySum3DExpected(inputA, depthN, rowsM, colsK, startDep, endDep, startRow, endRow, startCol, endCol) {
+      let sum = 0;
+      for (let dep = startDep; dep <= endDep; dep += 1) {
+        for (let row = startRow; row <= endRow; row += 1) {
+          for (let col = startCol; col <= endCol; col += 1) {
+            sum += inputA[(dep * rowsM + row) * colsK + col];
+          }
+        }
+      }
+      return sum;
+    }
+
     function buildInterleaveExpected(inputA, inputB) {
       const output = new Array(inputA.length * 2);
       for (let i = 0; i < inputA.length; i += 1) {
@@ -5204,7 +5681,14 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       document.getElementById("input-b").value = Array.isArray(example.inputB) ? example.inputB.join(", ") : "";
       document.getElementById("input-c").value = Array.isArray(example.inputC) ? example.inputC.join(", ") : "";
 
-      if (problem.kind === "matrix-multiplication" || problem.kind === "softmax-attention") {
+      if (problem.kind === "multi-agent-simulation") {
+        document.getElementById("matrix-m").value = String(example.agentCount);
+        document.getElementById("matrix-n").value = "";
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "matrix-multiplication" || problem.kind === "softmax-attention") {
         document.getElementById("matrix-m").value = String(example.rowsM);
         document.getElementById("matrix-n").value = String(example.sharedN);
         document.getElementById("matrix-k").value = String(example.colsK);
@@ -5302,6 +5786,20 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         document.getElementById("matrix-l").value = "";
         document.getElementById("matrix-p").value = "";
         document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "nearest-neighbor") {
+        document.getElementById("matrix-m").value = String(example.pointCount);
+        document.getElementById("matrix-n").value = "";
+        document.getElementById("matrix-k").value = "";
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
+      } else if (problem.kind === "batch-normalization") {
+        document.getElementById("matrix-m").value = String(example.rowsN);
+        document.getElementById("matrix-n").value = String(example.colsC);
+        document.getElementById("matrix-k").value = String(example.eps);
+        document.getElementById("matrix-l").value = "";
+        document.getElementById("matrix-p").value = "";
+        document.getElementById("matrix-q").value = "";
       } else if (problem.kind === "all-pairs-shortest-paths") {
         document.getElementById("matrix-m").value = String(example.rows);
         document.getElementById("matrix-n").value = "";
@@ -5357,6 +5855,13 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         document.getElementById("matrix-k").value = String(example.startRow);
         document.getElementById("matrix-l").value = String(example.endRow);
         document.getElementById("matrix-p").value = String(example.startCol);
+        document.getElementById("matrix-q").value = String(example.endCol);
+      } else if (problem.kind === "bfs-shortest-path") {
+        document.getElementById("matrix-m").value = String(example.rows);
+        document.getElementById("matrix-n").value = String(example.cols);
+        document.getElementById("matrix-k").value = String(example.startRow);
+        document.getElementById("matrix-l").value = String(example.startCol);
+        document.getElementById("matrix-p").value = String(example.endRow);
         document.getElementById("matrix-q").value = String(example.endCol);
       } else if (problem.kind === "max-subarray-sum") {
         document.getElementById("matrix-m").value = String(example.windowSize);
@@ -5568,6 +6073,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">Input:  A = ${formatVector(example.inputA)}</span>
             <span class="vector-line">        B = ${formatVector(example.inputB)}</span>
             <span class="vector-line">Output: C = ${formatVector(example.expected)}</span>
+          `;
+        } else if (problem.kind === "multi-agent-simulation") {
+          bodyHtml = `
+            <span class="vector-line">Input:  agents (N=${example.agentCount}) = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">Output: agents_next = ${formatVector(example.expected)}</span>
           `;
         } else if (problem.kind === "convolution-3d") {
           const outputDepth = example.inputDepth - example.kernelDepth + 1;
@@ -5796,6 +6306,19 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">        P = ${example.power}</span>
             <span class="vector-line">Output: A^P (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.expected, example.rows, example.cols)}</span>
           `;
+        } else if (problem.kind === "nearest-neighbor") {
+          bodyHtml = `
+            <span class="vector-line">Input:  points (N=${example.pointCount}) = ${formatVector(example.inputA)}</span>
+            <span class="vector-line">Output: indices = [${example.expected.join(", ")}]</span>
+          `;
+        } else if (problem.kind === "batch-normalization") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input (${example.rowsN} x ${example.colsC}) = ${formatMatrixInline(example.inputA, example.rowsN, example.colsC)}</span>
+            <span class="vector-line">        gamma = ${formatVector(example.inputB)}</span>
+            <span class="vector-line">        beta = ${formatVector(example.inputC)}</span>
+            <span class="vector-line">        eps = ${formatNumber(example.eps)}</span>
+            <span class="vector-line">Output: output (${example.rowsN} x ${example.colsC}) = ${formatMatrixInline(example.expected, example.rowsN, example.colsC)}</span>
+          `;
         } else if (problem.kind === "monte-carlo-integration") {
           bodyHtml = `
             <span class="vector-line">Input:  y_samples = ${formatVector(example.inputA)}</span>
@@ -5818,6 +6341,18 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             <span class="vector-line">Input:  input = [${example.inputA.join(", ")}]</span>
             <span class="vector-line">        num_bins = ${example.numBins}</span>
             <span class="vector-line">Output: histogram = [${example.expected.join(", ")}]</span>
+          `;
+        } else if (problem.kind === "bfs-shortest-path") {
+          bodyHtml = `
+            <span class="vector-line">Input:  grid (${example.rows} x ${example.cols}) = ${formatMatrixInline(example.inputA, example.rows, example.cols)}</span>
+            <span class="vector-line">        start = (${example.startRow}, ${example.startCol}), end = (${example.endRow}, ${example.endCol})</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
+          `;
+        } else if (problem.kind === "subarray-sum-3d") {
+          bodyHtml = `
+            <span class="vector-line">Input:  input (${example.inputB[0]} x ${example.inputB[1]} x ${example.inputB[2]}) = ${formatTensorInline(example.inputA, example.inputB[0], example.inputB[1], example.inputB[2])}</span>
+            <span class="vector-line">        bounds = [${example.inputC.join(", ")}]</span>
+            <span class="vector-line">Output: output[0] = ${formatNumber(example.expected)}</span>
           `;
         } else if (problem.kind === "prefix-sum") {
           bodyHtml = `
@@ -5905,6 +6440,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
 
       const usesSecondInput =
+        problem.kind === "batch-normalization" ||
+        problem.kind === "subarray-sum-3d" ||
         problem.kind === "vector-add" ||
         problem.kind === "convolution-3d" ||
         problem.kind === "convolution-2d" ||
@@ -5936,6 +6473,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const isRotaryEmbedding = problem.kind === "rotary-positional-embedding";
       const isSlidingAttention = problem.kind === "sliding-window-attention";
       const usesThirdInput =
+        problem.kind === "batch-normalization" ||
+        problem.kind === "subarray-sum-3d" ||
         isSoftmaxAttention ||
         isMultiHeadAttention ||
         isAlibiAttention ||
@@ -5951,6 +6490,9 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const isCrossEntropy = problem.kind === "cross-entropy-loss";
       const isSparseMatVec = problem.kind === "sparse-matrix-vector-multiplication";
       const isRmsNormalization = problem.kind === "rms-normalization";
+      const isMultiAgentSimulation = problem.kind === "multi-agent-simulation";
+      const isNearestNeighbor = problem.kind === "nearest-neighbor";
+      const isBatchNormalization = problem.kind === "batch-normalization";
       const isMatrixAddition = problem.kind === "matrix-addition";
       const isMatrixMultiply = problem.kind === "matrix-multiplication";
       const isBatchedMatMul = problem.kind === "batched-matrix-multiplication";
@@ -5967,8 +6509,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       const isCountArray = problem.kind === "count-array";
       const isCountArray2D = problem.kind === "count-array-2d";
       const isCountArray3D = problem.kind === "count-array-3d";
+      const isBfsShortestPath = problem.kind === "bfs-shortest-path";
       const isSubarraySum = problem.kind === "subarray-sum";
       const isSubarraySum2D = problem.kind === "subarray-sum-2d";
+      const isSubarraySum3D = problem.kind === "subarray-sum-3d";
       const isMaxSubarray = problem.kind === "max-subarray-sum";
       const isInterleave = problem.kind === "interleave-arrays";
       const isMergeSorted = problem.kind === "merge-sorted" || problem.kind === "parallel-merge";
@@ -5981,6 +6525,9 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isGaussianBlur ||
         isCrossEntropy ||
         isSparseMatVec ||
+        isMultiAgentSimulation ||
+        isNearestNeighbor ||
+        isBatchNormalization ||
         isRmsNormalization ||
         isMatrixAddition ||
         isMatrixMultiply ||
@@ -5998,6 +6545,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isGrayscale ||
         isCountArray2D ||
         isCountArray3D ||
+        isBfsShortestPath ||
         isSubarraySum ||
         isSubarraySum2D ||
         isMaxSubarray ||
@@ -6008,6 +6556,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isGaussianBlur ||
         isCrossEntropy ||
         isSparseMatVec ||
+        isBatchNormalization ||
         isRmsNormalization ||
         isMatrixMultiply ||
         isBatchedMatMul ||
@@ -6023,10 +6572,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isGrayscale ||
         isCountArray2D ||
         isCountArray3D ||
+        isBfsShortestPath ||
         isSubarraySum ||
         isSubarraySum2D ||
         isJacobi2D;
       const showMatrixK =
+        isBatchNormalization ||
         isConvolution3D ||
         isConvolution2D ||
         isGaussianBlur ||
@@ -6044,6 +6595,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isTopK ||
         isCountArray ||
         isCountArray2D ||
+        isBfsShortestPath ||
         isCountArray3D ||
         isSubarraySum2D;
       const showMatrixL =
@@ -6052,10 +6604,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         isGaussianBlur ||
         isBatchedMatMul ||
         isAlibiAttention ||
+        isBfsShortestPath ||
         isCountArray3D ||
         isSubarraySum2D;
-      const showMatrixP = isConvolution3D || isSubarraySum2D;
-      const showMatrixQ = isConvolution3D || isSubarraySum2D;
+      const showMatrixP = isConvolution3D || isSubarraySum2D || isBfsShortestPath;
+      const showMatrixQ = isConvolution3D || isSubarraySum2D || isBfsShortestPath;
       const usesMatrixDims =
         showMatrixM ||
         showMatrixN ||
@@ -6099,6 +6652,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       document.getElementById("input-a-label").textContent =
         problem.kind === "vector-add"
           ? "Vector A"
+          : isMultiAgentSimulation
+            ? "Agents (flat [x, y, vx, vy])"
+          : isNearestNeighbor
+            ? "Points (flat [x, y, z])"
           : isSorting
             ? "Input Data"
           : isConvolution3D
@@ -6111,6 +6668,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "Input Array"
           : isCrossEntropy
             ? "Logits Matrix (row-major)"
+          : isBatchNormalization
+            ? "Input Matrix (row-major)"
           : isSparseMatVec
             ? "Matrix A (row-major)"
           : isRmsNormalization || isValueClipping
@@ -6139,7 +6698,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "Matrix A (row-major)"
             : isTranspose
               ? "Input Matrix A (row-major)"
-            : (isCountArray || isCountArray2D || isCountArray3D || isSubarraySum || isSubarraySum2D || isMaxSubarray)
+            : (isCountArray || isCountArray2D || isCountArray3D || isBfsShortestPath || isSubarraySum || isSubarraySum2D || isSubarraySum3D || isMaxSubarray)
               ? "Integer Input"
             : isHistogramming
               ? "Integer Array"
@@ -6147,6 +6706,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       document.getElementById("input-b-label").textContent =
         problem.kind === "vector-add"
           ? "Vector B"
+          : isBatchNormalization
+            ? "Gamma"
+          : isSubarraySum3D
+            ? "Dimensions [N, M, K]"
           : isMse
             ? "Targets"
           : isConvolution3D
@@ -6183,7 +6746,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
               ? "Unused"
             : "Input B";
       document.getElementById("input-c-label").textContent =
-        isRotaryEmbedding
+        isBatchNormalization
+          ? "Beta"
+          : isSubarraySum3D
+            ? "Bounds [S_DEP, E_DEP, S_ROW, E_ROW, S_COL, E_COL]"
+          : isRotaryEmbedding
           ? "Matrix sin (row-major)"
           : (isAttention || isLinearAttention)
             ? "Matrix V (row-major)"
@@ -6192,9 +6759,12 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       matrixMLabel.textContent =
         isColorInversion ? "Width"
         : isGrayscale ? "Width"
+        : isMultiAgentSimulation ? "Agents N"
+        : isNearestNeighbor ? "Points N"
         : isConvolution3D ? "Input Depth"
         : isGaussianBlur ? "Input Rows"
         : isConvolution2D ? "Input Rows"
+        : isBatchNormalization ? "Batch N"
         : isCrossEntropy ? "Rows N"
         : isSparseMatVec ? "Rows M"
         : isRmsNormalization ? "Elements N"
@@ -6208,6 +6778,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isTopK ? "Unused"
         : isCountArray2D ? "Rows N"
         : isCountArray3D ? "Depth N"
+        : isBfsShortestPath ? "Rows"
         : isSubarraySum ? "Start S"
         : isSubarraySum2D ? "Rows N"
         : isMaxSubarray ? "Window Size"
@@ -6221,6 +6792,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isConvolution3D ? "Input Rows"
         : isGaussianBlur ? "Input Cols"
         : isConvolution2D ? "Input Cols"
+        : isBatchNormalization ? "Channels C"
         : isCrossEntropy ? "Cols C"
         : isSparseMatVec ? "Cols N"
         : isRmsNormalization ? "Gamma"
@@ -6232,6 +6804,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isTranspose ? "Input Cols"
         : isCountArray2D ? "Cols M"
         : isCountArray3D ? "Rows M"
+        : isBfsShortestPath ? "Cols"
         : isSubarraySum ? "End E"
         : isSubarraySum2D ? "Cols M"
         : isJacobi2D ? "Cols"
@@ -6244,7 +6817,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isMultiHeadAttention ? "Model d"
         : "Shared N";
       matrixKLabel.textContent =
-        isConvolution3D ? "Input Cols"
+        isBatchNormalization ? "eps"
+        : isConvolution3D ? "Input Cols"
         : isGaussianBlur ? "Kernel Rows"
         : isConvolution2D ? "Kernel Rows"
         : isSparseMatVec ? "nnz"
@@ -6259,6 +6833,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isTopK ? "Top k"
         : isCountArray ? "Target K"
         : isCountArray2D ? "Target K"
+        : isBfsShortestPath ? "Start Row"
         : isCountArray3D ? "Cols K"
         : isSubarraySum2D ? "Start Row"
         : isHistogramming ? "num_bins"
@@ -6269,27 +6844,36 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         : isConvolution2D ? "Kernel Cols"
         : isBatchedMatMul ? "Cols K"
         : isAlibiAttention ? "Alpha"
+        : isBfsShortestPath ? "Start Col"
         : isCountArray3D ? "Target P"
         : isSubarraySum2D ? "End Row"
         : "Extra Dim";
       matrixPLabel.textContent =
         isConvolution3D ? "Kernel Rows"
+        : isBfsShortestPath ? "End Row"
         : isSubarraySum2D ? "Start Col"
         : "Extra Dim";
       matrixQLabel.textContent =
         isConvolution3D ? "Kernel Cols"
+        : isBfsShortestPath ? "End Col"
         : isSubarraySum2D ? "End Col"
         : "Extra Dim";
 
       inputA.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "1.0, 2.0, 3.0"
+          : isMultiAgentSimulation
+            ? "0.0, 0.0, 1.0, 0.0, 3.0, 4.0, 0.0, -1.0"
+          : isNearestNeighbor
+            ? "0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 5.0, 5.0, 5.0"
           : isSorting
             ? "5.0, 2.0, 8.0, 1.0"
           : isConvolution3D
             ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
           : isGaussianBlur
             ? "1.0, 2.0, 3.0, 4.0"
+          : isBatchNormalization
+            ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
           : problem.kind === "convolution-2d"
             ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
           : problem.kind === "convolution-1d"
@@ -6336,7 +6920,7 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
             ? "1.0, 2.0, 3.0, 4.0"
             : isTranspose
               ? "1.0, 2.0, 3.0, 4.0, 5.0, 6.0"
-            : (isCountArray || isCountArray2D || isCountArray3D || isSubarraySum || isSubarraySum2D || isMaxSubarray)
+            : (isCountArray || isCountArray2D || isCountArray3D || isBfsShortestPath || isSubarraySum || isSubarraySum2D || isSubarraySum3D || isMaxSubarray)
               ? "1, 2, 3, 4, 1"
             : isHistogramming
               ? "0, 1, 2, 1, 0"
@@ -6345,6 +6929,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       inputB.placeholder = canRun
         ? (problem.kind === "vector-add"
           ? "4.0, 5.0, 6.0"
+          : isBatchNormalization
+            ? "1.0, 1.0"
+          : isSubarraySum3D
+            ? "2, 2, 3"
           : isMse
             ? "1.5, 2.5, 3.5, 4.5"
           : isConvolution3D
@@ -6382,7 +6970,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
               : "")
         : "Browser judge is not available for this challenge.";
       inputC.placeholder = canRun
-        ? (isRotaryEmbedding
+        ? (isBatchNormalization
+          ? "0.0, 0.0"
+          : isSubarraySum3D
+          ? "0, 1, 0, 0, 1, 2"
+          : isRotaryEmbedding
           ? "0.0, 0.0, 0.0, 0.0"
           : isLinearAttention
           ? "1.0, 2.0, 3.0, 4.0"
@@ -6549,7 +7141,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
 
       summary.innerHTML = '<span class="pill">Waiting for a run</span>';
-      if (problem.kind === "sparse-matrix-vector-multiplication") {
+      if (problem.kind === "multi-agent-simulation") {
+        vector.textContent = "agents_next = [ waiting for a run ]";
+      } else if (problem.kind === "nearest-neighbor") {
+        vector.textContent = "indices = [ waiting for a run ]";
+      } else if (problem.kind === "sparse-matrix-vector-multiplication") {
         vector.textContent = "y = [ waiting for a run ]";
       } else if (problem.kind === "matrix-transpose") {
         vector.textContent = "A^T = [ waiting for a run ]";
@@ -6572,7 +7168,8 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "causal-self-attention" ||
         problem.kind === "linear-self-attention" ||
         problem.kind === "rotary-positional-embedding" ||
-        problem.kind === "sliding-window-attention"
+        problem.kind === "sliding-window-attention" ||
+        problem.kind === "batch-normalization"
       ) {
         vector.textContent = "output = [ waiting for a run ]";
       } else if (problem.kind === "matrix-power" || problem.kind === "all-pairs-shortest-paths") {
@@ -6596,8 +7193,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "count-array" ||
         problem.kind === "count-array-2d" ||
         problem.kind === "count-array-3d" ||
+        problem.kind === "bfs-shortest-path" ||
         problem.kind === "subarray-sum" ||
         problem.kind === "subarray-sum-2d" ||
+        problem.kind === "subarray-sum-3d" ||
         problem.kind === "max-subarray-sum"
       ) {
         vector.textContent = "output[0] = [ waiting for a run ]";
@@ -7541,6 +8140,47 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       );
     }
 
+    function renderMultiAgentSimulationResults(inputA, agentCount, output) {
+      const expected = buildMultiAgentSimulationExpected(inputA, agentCount);
+      renderSimpleVectorJudgeResults(output, expected, "agents_next", [`Agents: ${agentCount}`], 1e-4);
+    }
+
+    function renderNearestNeighborResults(inputA, pointCount, output) {
+      const expected = buildNearestNeighborExpected(inputA, pointCount);
+      renderSimpleVectorJudgeResults(output, expected, "indices", [`Points: ${pointCount}`], 1e-4);
+    }
+
+    function renderBatchNormalizationResults(inputA, gamma, beta, rowsN, colsC, eps, output) {
+      const expected = buildBatchNormalizationExpected(inputA, gamma, beta, rowsN, colsC, eps);
+      renderMatrixJudgeResults(output, expected, rowsN, colsC, "output", [`Shape: ${rowsN} x ${colsC}`, `eps: ${formatNumber(eps)}`], 1e-3);
+    }
+
+    function renderBfsShortestPathResults(inputA, rows, cols, startRow, startCol, endRow, endCol, output) {
+      const expected = buildBfsShortestPathExpected(inputA, rows, cols, startRow, startCol, endRow, endCol);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "output[0]",
+        `<strong>BFS Shortest Path</strong>start=(${startRow}, ${startCol}), end=(${endRow}, ${endCol}), actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Shape: ${rows} x ${cols}`],
+        1e-3
+      );
+    }
+
+    function renderSubarraySum3DResults(inputA, depthN, rowsM, colsK, startDep, endDep, startRow, endRow, startCol, endCol, output) {
+      const expected = buildSubarraySum3DExpected(inputA, depthN, rowsM, colsK, startDep, endDep, startRow, endRow, startCol, endCol);
+      const actual = output.length === 1 ? output[0] : Number.NaN;
+      renderScalarJudgeResults(
+        actual,
+        expected,
+        "output[0]",
+        `<strong>3D Subarray Sum</strong>depth=[${startDep}, ${endDep}], rows=[${startRow}, ${endRow}], cols=[${startCol}, ${endCol}], actual=${formatNumber(actual)}, expected=${formatNumber(expected)}`,
+        [`Shape: ${depthN} x ${rowsM} x ${colsK}`],
+        1e-3
+      );
+    }
+
     function renderInterleaveResults(inputA, inputB, output) {
       const expected = buildInterleaveExpected(inputA, inputB);
       renderSimpleVectorJudgeResults(output, expected, "output", [`Pairs: ${inputA.length}`], 1e-4);
@@ -8334,6 +8974,106 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       }
     }
 
+    function runMultiAgentSimulation() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const agentCount = parsePositiveInt(document.getElementById("matrix-m").value);
+      if (agentCount === null) {
+        pushLog("N must be a positive integer.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length !== agentCount * 4) {
+        pushLog("Agent buffer length must equal 4 x N.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_multi_agent_simulation",
+          "number",
+          ["string", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, agentCount]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderMultiAgentSimulationResults(inputA, agentCount, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
+    function runNearestNeighbor() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const pointCount = parsePositiveInt(document.getElementById("matrix-m").value);
+      if (pointCount === null) {
+        pushLog("N must be a positive integer.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      if (inputA.length !== pointCount * 3) {
+        pushLog("Point buffer length must equal 3 x N.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_nearest_neighbor",
+          "number",
+          ["string", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, pointCount]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderNearestNeighborResults(inputA, pointCount, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+      }
+    }
+
     function runMatrixAddition() {
       if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
         return;
@@ -8758,6 +9498,75 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
       } finally {
         window.Module._free(logitsPtr);
         window.Module._free(labelPtr);
+      }
+    }
+
+    function runBatchNormalization() {
+      if (!ensureRuntime() || !ensureProgramMatchesCurrentProblem()) {
+        return;
+      }
+
+      const rowsN = parsePositiveInt(document.getElementById("matrix-m").value);
+      const colsC = parsePositiveInt(document.getElementById("matrix-n").value);
+      const eps = parseFiniteFloat(document.getElementById("matrix-k").value);
+      if (rowsN === null || colsC === null || eps === null) {
+        pushLog("N and C must be positive integers, and eps must be a valid float.", "stderr");
+        return;
+      }
+
+      const inputA = parseFloatList(document.getElementById("input-a").value);
+      const inputB = parseFloatList(document.getElementById("input-b").value);
+      const inputC = parseFloatList(document.getElementById("input-c").value);
+      const expectedLength = rowsN * colsC;
+
+      if (inputA.length !== expectedLength) {
+        pushLog("Input tensor length must equal N x C.", "stderr");
+        return;
+      }
+
+      if (inputB.length !== colsC || inputC.length !== colsC) {
+        pushLog("Gamma and beta lengths must both equal C.", "stderr");
+        return;
+      }
+
+      const kernelName = document.getElementById("kernel-select").value;
+      const inputABuffer = new Float32Array(inputA);
+      const inputBBuffer = new Float32Array(inputB);
+      const inputCBuffer = new Float32Array(inputC);
+      const inputAPtr = window.Module._malloc(inputABuffer.byteLength);
+      const inputBPtr = window.Module._malloc(inputBBuffer.byteLength);
+      const inputCPtr = window.Module._malloc(inputCBuffer.byteLength);
+
+      try {
+        window.Module.HEAPF32.set(inputABuffer, inputAPtr >> 2);
+        window.Module.HEAPF32.set(inputBBuffer, inputBPtr >> 2);
+        window.Module.HEAPF32.set(inputCBuffer, inputCPtr >> 2);
+
+        const ok = window.Module.ccall(
+          "ptxvm_run_batch_normalization",
+          "number",
+          ["string", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
+          [kernelName, inputAPtr, inputA.length, inputBPtr, inputB.length, inputCPtr, inputC.length, rowsN, colsC, eps]
+        );
+
+        if (!ok) {
+          const error = window.Module.ccall("ptxvm_get_last_error", "string", [], []);
+          pushLog(error || "Kernel execution failed.", "stderr");
+          return;
+        }
+
+        const resultCount = window.Module.ccall("ptxvm_get_result_count", "number", [], []);
+        const output = [];
+        for (let i = 0; i < resultCount; i += 1) {
+          output.push(window.Module.ccall("ptxvm_get_result_value", "number", ["number"], [i]));
+        }
+
+        renderBatchNormalizationResults(inputA, inputB, inputC, rowsN, colsC, eps, output);
+        pushLog(`Judge finished running kernel ${kernelName}.`, "runtime");
+      } finally {
+        window.Module._free(inputAPtr);
+        window.Module._free(inputBPtr);
+        window.Module._free(inputCPtr);
       }
     }
 
@@ -10061,6 +10870,34 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         }
         scalars = [depth, rows, cols, target];
         render = (output) => renderCountArray3DResults(inputA, depth, rows, cols, target, output);
+      } else if (problem.kind === "bfs-shortest-path") {
+        const rows = parsePositiveInt(document.getElementById("matrix-m").value);
+        const cols = parsePositiveInt(document.getElementById("matrix-n").value);
+        const startRow = parseInteger(document.getElementById("matrix-k").value);
+        const startCol = parseInteger(document.getElementById("matrix-l").value);
+        const endRow = parseInteger(document.getElementById("matrix-p").value);
+        const endCol = parseInteger(document.getElementById("matrix-q").value);
+        if (
+          rows === null || cols === null ||
+          startRow === null || startCol === null ||
+          endRow === null || endCol === null
+        ) {
+          pushLog("Rows, cols, and all start/end coordinates must be valid integers.", "stderr");
+          return;
+        }
+        if (inputA.length !== rows * cols) {
+          pushLog("Input length does not match rows x cols.", "stderr");
+          return;
+        }
+        if (
+          startRow < 0 || startRow >= rows || startCol < 0 || startCol >= cols ||
+          endRow < 0 || endRow >= rows || endCol < 0 || endCol >= cols
+        ) {
+          pushLog("Start and end coordinates must lie inside the grid.", "stderr");
+          return;
+        }
+        scalars = [rows, cols, startRow, startCol, endRow, endCol];
+        render = (output) => renderBfsShortestPathResults(inputA, rows, cols, startRow, startCol, endRow, endCol, output);
       } else if (problem.kind === "subarray-sum") {
         const start = parseInteger(document.getElementById("matrix-m").value);
         const end = parseInteger(document.getElementById("matrix-n").value);
@@ -10095,6 +10932,33 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         }
         scalars = [rows, cols, startRow, endRow, startCol, endCol];
         render = (output) => renderSubarraySum2DResults(inputA, rows, cols, startRow, endRow, startCol, endCol, output);
+      } else if (problem.kind === "subarray-sum-3d") {
+        const dims = parseIntList(document.getElementById("input-b").value);
+        const bounds = parseIntList(document.getElementById("input-c").value);
+        if (dims === null || dims.length !== 3 || bounds === null || bounds.length !== 6) {
+          pushLog("Input B must contain N, M, K and Input C must contain S_DEP, E_DEP, S_ROW, E_ROW, S_COL, E_COL.", "stderr");
+          return;
+        }
+        const [depthN, rowsM, colsK] = dims;
+        const [startDep, endDep, startRow, endRow, startCol, endCol] = bounds;
+        if (depthN <= 0 || rowsM <= 0 || colsK <= 0) {
+          pushLog("N, M, and K must all be positive integers.", "stderr");
+          return;
+        }
+        if (inputA.length !== depthN * rowsM * colsK) {
+          pushLog("Input length does not match N x M x K.", "stderr");
+          return;
+        }
+        if (
+          startDep < 0 || endDep < startDep || endDep >= depthN ||
+          startRow < 0 || endRow < startRow || endRow >= rowsM ||
+          startCol < 0 || endCol < startCol || endCol >= colsK
+        ) {
+          pushLog("Subvolume bounds must satisfy 0 <= start <= end within the provided dimensions.", "stderr");
+          return;
+        }
+        scalars = [depthN, rowsM, colsK, startDep, endDep, startRow, endRow, startCol, endCol];
+        render = (output) => renderSubarraySum3DResults(inputA, depthN, rowsM, colsK, startDep, endDep, startRow, endRow, startCol, endCol, output);
       } else if (problem.kind === "max-subarray-sum") {
         const windowSize = parsePositiveInt(document.getElementById("matrix-m").value);
         if (windowSize === null || windowSize > inputA.length) {
@@ -10629,6 +11493,16 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         return;
       }
 
+      if (problem.kind === "multi-agent-simulation") {
+        runMultiAgentSimulation();
+        return;
+      }
+
+      if (problem.kind === "nearest-neighbor") {
+        runNearestNeighbor();
+        return;
+      }
+
       if (problem.kind === "matrix-transpose") {
         runMatrixTranspose();
         return;
@@ -10661,6 +11535,11 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
 
       if (problem.kind === "rms-normalization") {
         runRmsNormalization();
+        return;
+      }
+
+      if (problem.kind === "batch-normalization") {
+        runBatchNormalization();
         return;
       }
 
@@ -10733,8 +11612,10 @@ extern "C" __global__ void solve(const float* dist, float* output, int N) {
         problem.kind === "count-array" ||
         problem.kind === "count-array-2d" ||
         problem.kind === "count-array-3d" ||
+        problem.kind === "bfs-shortest-path" ||
         problem.kind === "subarray-sum" ||
         problem.kind === "subarray-sum-2d" ||
+        problem.kind === "subarray-sum-3d" ||
         problem.kind === "max-subarray-sum"
       ) {
         runIntScalarReduce();

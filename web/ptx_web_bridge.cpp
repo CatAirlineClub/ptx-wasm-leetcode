@@ -715,6 +715,407 @@ public:
         return true;
     }
 
+    bool runMultiAgentSimulationDemo(const std::string& kernelName,
+                                     const float* input,
+                                     int inputLen,
+                                     int agentCount) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (input == nullptr) {
+            lastError_ = "Input buffer must not be null.";
+            return false;
+        }
+
+        if (agentCount <= 0) {
+            lastError_ = "N must be a positive integer.";
+            return false;
+        }
+
+        const size_t expectedLen = static_cast<size_t>(agentCount) * 4u;
+        if (static_cast<size_t>(inputLen) != expectedLen) {
+            lastError_ = "Agent buffer length must equal 4 x N.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isReductionSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u32), such as multi-agent simulation.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = expectedLen * sizeof(float);
+        const size_t outputBytes = inputBytes;
+        const std::vector<float> zeroOutput(expectedLen, 0.0f);
+        const CUdeviceptr inputPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputPtr, input, inputBytes)) {
+            lastError_ = "Failed to copy the agent buffer into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output agent buffer in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({outputPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({
+            static_cast<CUdeviceptr>(agentCount),
+            kernel->parameters[2].size,
+            kernel->parameters[2].offset,
+        });
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(expectedLen, 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the output agent buffer failed.";
+            lastResult_.clear();
+            return false;
+        }
+
+        return true;
+    }
+
+    bool runNearestNeighborDemo(const std::string& kernelName,
+                                const float* input,
+                                int inputLen,
+                                int pointCount) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (input == nullptr) {
+            lastError_ = "Input buffer must not be null.";
+            return false;
+        }
+
+        if (pointCount <= 0) {
+            lastError_ = "N must be a positive integer.";
+            return false;
+        }
+
+        const size_t expectedInputLen = static_cast<size_t>(pointCount) * 3u;
+        if (static_cast<size_t>(inputLen) != expectedInputLen) {
+            lastError_ = "Point buffer length must equal 3 x N.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isReductionSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u32), such as nearest neighbor.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = expectedInputLen * sizeof(float);
+        const size_t outputBytes = static_cast<size_t>(pointCount) * sizeof(std::int32_t);
+        const std::vector<std::int32_t> initialOutput(static_cast<size_t>(pointCount), -1);
+        const CUdeviceptr inputPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputPtr, input, inputBytes)) {
+            lastError_ = "Failed to copy the point cloud into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, initialOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output index buffer in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({outputPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({
+            static_cast<CUdeviceptr>(pointCount),
+            kernel->parameters[2].size,
+            kernel->parameters[2].offset,
+        });
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        std::vector<std::int32_t> output(static_cast<size_t>(pointCount), -1);
+        if (!vm->copyMemoryDtoH(output.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the output index buffer failed.";
+            return false;
+        }
+
+        lastResult_.clear();
+        lastResult_.reserve(static_cast<size_t>(pointCount));
+        for (std::int32_t value : output) {
+            lastResult_.push_back(static_cast<float>(value));
+        }
+
+        return true;
+    }
+
+    bool runBatchNormalizationDemo(const std::string& kernelName,
+                                   const float* input,
+                                   int inputLen,
+                                   const float* gamma,
+                                   int gammaLen,
+                                   const float* beta,
+                                   int betaLen,
+                                   int rowsN,
+                                   int colsC,
+                                   float eps) {
+        lastError_.clear();
+        lastResult_.clear();
+
+        if (loadedPath_.empty()) {
+            lastError_ = "Load a PTX file before launching the kernel.";
+            return false;
+        }
+
+        if (input == nullptr || gamma == nullptr || beta == nullptr) {
+            lastError_ = "Input buffers must not be null.";
+            return false;
+        }
+
+        if (rowsN <= 0 || colsC <= 0) {
+            lastError_ = "N and C must both be positive integers.";
+            return false;
+        }
+
+        const size_t expectedInputLen = static_cast<size_t>(rowsN) * static_cast<size_t>(colsC);
+        if (static_cast<size_t>(inputLen) != expectedInputLen) {
+            lastError_ = "Input tensor length must equal N x C.";
+            return false;
+        }
+
+        if (gammaLen != colsC || betaLen != colsC) {
+            lastError_ = "Gamma and beta lengths must both equal C.";
+            return false;
+        }
+
+        auto validationVm = createVm();
+        if (!validationVm) {
+            return false;
+        }
+
+        if (!validationVm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const PTXProgram& program = validationVm->getExecutor().getProgram();
+        const PTXFunction* kernel = resolveKernel(program, kernelName);
+        if (kernel == nullptr) {
+            lastError_ = "Could not find the requested kernel entry in the loaded PTX program.";
+            return false;
+        }
+
+        if (!isFourPointerTwoIntOneFloatSignature(*kernel)) {
+            lastError_ =
+                "This browser demo currently supports kernels with signature "
+                "(.u64, .u64, .u64, .u64, .u32, .u32, .f32), such as batch normalization.";
+            return false;
+        }
+
+        auto vm = createVm();
+        if (!vm) {
+            return false;
+        }
+
+        if (!vm->loadProgram(loadedPath_)) {
+            lastError_ = "Failed to reload the uploaded PTX program.";
+            return false;
+        }
+
+        const size_t inputBytes = expectedInputLen * sizeof(float);
+        const size_t paramBytes = static_cast<size_t>(colsC) * sizeof(float);
+        const size_t outputBytes = inputBytes;
+        const std::vector<float> zeroOutput(expectedInputLen, 0.0f);
+        const CUdeviceptr inputPtr = vm->allocateMemory(inputBytes);
+        const CUdeviceptr gammaPtr = vm->allocateMemory(paramBytes);
+        const CUdeviceptr betaPtr = vm->allocateMemory(paramBytes);
+        const CUdeviceptr outputPtr = vm->allocateMemory(outputBytes);
+
+        if (!vm->copyMemoryHtoD(inputPtr, input, inputBytes)) {
+            lastError_ = "Failed to copy the input tensor into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(gammaPtr, gamma, paramBytes)) {
+            lastError_ = "Failed to copy gamma into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(betaPtr, beta, paramBytes)) {
+            lastError_ = "Failed to copy beta into VM memory.";
+            return false;
+        }
+
+        if (!vm->copyMemoryHtoD(outputPtr, zeroOutput.data(), outputBytes)) {
+            lastError_ = "Failed to initialize the output tensor in VM memory.";
+            return false;
+        }
+
+        std::vector<KernelParameter> params;
+        params.push_back({inputPtr, kernel->parameters[0].size, kernel->parameters[0].offset});
+        params.push_back({gammaPtr, kernel->parameters[1].size, kernel->parameters[1].offset});
+        params.push_back({betaPtr, kernel->parameters[2].size, kernel->parameters[2].offset});
+        params.push_back({outputPtr, kernel->parameters[3].size, kernel->parameters[3].offset});
+        params.push_back({static_cast<CUdeviceptr>(rowsN), kernel->parameters[4].size, kernel->parameters[4].offset});
+        params.push_back({static_cast<CUdeviceptr>(colsC), kernel->parameters[5].size, kernel->parameters[5].offset});
+
+        std::uint32_t epsBits = 0;
+        std::memcpy(&epsBits, &eps, sizeof(float));
+        params.push_back({static_cast<CUdeviceptr>(epsBits), kernel->parameters[6].size, kernel->parameters[6].offset});
+        vm->setKernelParameters(params);
+
+        PTXExecutor& executor = vm->getExecutor();
+        executor.setGridDimensions(1, 1, 1, 1, 1, 1);
+
+        ThreadExecutionContext context;
+        context.gridDimX = 1;
+        context.gridDimY = 1;
+        context.gridDimZ = 1;
+        context.blockDimX = 1;
+        context.blockDimY = 1;
+        context.blockDimZ = 1;
+        context.blockIdxX = 0;
+        context.blockIdxY = 0;
+        context.blockIdxZ = 0;
+        context.threadIdxX = 0;
+        context.threadIdxY = 0;
+        context.threadIdxZ = 0;
+        context.warpSize = 32;
+        context.laneId = 0;
+        executor.setSingleThreadExecutionContext(context);
+
+        if (!vm->run()) {
+            lastError_ = "Kernel execution failed inside the PTX VM.";
+            return false;
+        }
+
+        lastResult_.assign(expectedInputLen, 0.0f);
+        if (!vm->copyMemoryDtoH(lastResult_.data(), outputPtr, outputBytes)) {
+            lastError_ = "Kernel executed, but reading the batch normalization output failed.";
+            lastResult_.clear();
+            return false;
+        }
+
+        return true;
+    }
+
     bool runMatrixAdditionDemo(const std::string& kernelName,
                                const float* inputA,
                                int inputALen,
@@ -5870,6 +6271,23 @@ private:
                isScalar32BitFloat(kernel.parameters[7]);
     }
 
+    bool isFourPointerTwoIntOneFloatSignature(const PTXFunction& kernel) const {
+        if (kernel.parameters.size() != 7) {
+            return false;
+        }
+
+        return kernel.parameters[0].isPointer &&
+               kernel.parameters[1].isPointer &&
+               kernel.parameters[2].isPointer &&
+               kernel.parameters[3].isPointer &&
+               !kernel.parameters[4].isPointer &&
+               !kernel.parameters[5].isPointer &&
+               !kernel.parameters[6].isPointer &&
+               isScalar32BitInteger(kernel.parameters[4]) &&
+               isScalar32BitInteger(kernel.parameters[5]) &&
+               isScalar32BitFloat(kernel.parameters[6]);
+    }
+
     bool isSoftmaxAttentionSignature(const PTXFunction& kernel) const {
         if (kernel.parameters.size() != 7) {
             return false;
@@ -6261,6 +6679,54 @@ EMSCRIPTEN_KEEPALIVE int ptxvm_run_batched_matrix_multiplication(const char* ker
         rowsM,
         sharedN,
         colsK) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_multi_agent_simulation(const char* kernelName,
+                                                          const float* input,
+                                                          int inputLen,
+                                                          int agentCount) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runMultiAgentSimulationDemo(
+        chosenKernel,
+        input,
+        inputLen,
+        agentCount) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_nearest_neighbor(const char* kernelName,
+                                                    const float* input,
+                                                    int inputLen,
+                                                    int pointCount) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runNearestNeighborDemo(
+        chosenKernel,
+        input,
+        inputLen,
+        pointCount) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int ptxvm_run_batch_normalization(const char* kernelName,
+                                                       const float* input,
+                                                       int inputLen,
+                                                       const float* gamma,
+                                                       int gammaLen,
+                                                       const float* beta,
+                                                       int betaLen,
+                                                       int rowsN,
+                                                       int colsC,
+                                                       float eps) {
+    const std::string chosenKernel = kernelName == nullptr ? "" : kernelName;
+    return bridge().runBatchNormalizationDemo(
+        chosenKernel,
+        input,
+        inputLen,
+        gamma,
+        gammaLen,
+        beta,
+        betaLen,
+        rowsN,
+        colsC,
+        eps) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int ptxvm_run_matrix_transpose(const char* kernelName,

@@ -990,6 +990,10 @@
                 <button id="source-reset-button" class="secondary" type="button">Reset Starter Code</button>
               </div>
 
+              <div id="compile-status-note" class="inline-note">
+                Compile a CUDA submission to generate PTX and inspect compiler feedback here.
+              </div>
+
               <div class="field">
                 <label for="kernel-select">Detected entry kernel</label>
                 <select id="kernel-select" disabled></select>
@@ -1136,7 +1140,6 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int N
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < N) {
         // TODO: write the element-wise sum into C[idx].
-        // C[idx] = A[idx] + B[idx];
     }
 }
 `,
@@ -1227,7 +1230,6 @@ __global__ void matrix_transpose_kernel(const float* input, float* output, int r
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     if (row < rows && col < cols) {
         // TODO: write the transposed element into output[col * rows + row].
-        // output[col * rows + row] = input[row * cols + col];
     }
 }
 
@@ -1524,7 +1526,6 @@ extern "C" __global__ void solve(const float* A, const float* B, float* C, int N
         int total = N * N;
         for (int idx = 0; idx < total; idx = idx + 1) {
             // TODO: write the flattened matrix sum into C[idx].
-            // C[idx] = A[idx] + B[idx];
         }
     }
 }
@@ -5036,7 +5037,7 @@ extern "C" __global__ void solve(const float* x,
         specHtml: problem.specHtml || "<p>No challenge description is available.</p>",
         starterCode,
         editorStarterCode,
-        signatureHint: problem.signatureHint || extractSignatureHint(starterCode),
+        signatureHint: problem.signatureHint || extractSignatureHint(editorStarterCode) || extractSignatureHint(starterCode),
         examples: Array.isArray(problem.examples) ? cloneJson(problem.examples) : [],
         judgeContract:
           problem.judgeContract ||
@@ -5098,6 +5099,16 @@ extern "C" __global__ void solve(const float* x,
           : problem;
 
       const mergedOverride = cloneJson(override);
+      const editorStarterCode =
+        typeof override.editorStarterCode === "string" && override.editorStarterCode.trim()
+          ? override.editorStarterCode
+          : typeof override.starterCode === "string"
+            ? override.starterCode
+            : "";
+      const signatureHint =
+        override.signatureHint ||
+        extractSignatureHint(editorStarterCode) ||
+        sanitizedProblem.signatureHint;
       delete mergedOverride.starterCode;
       delete mergedOverride.editorStarterCode;
       delete mergedOverride.signatureHint;
@@ -5106,8 +5117,8 @@ extern "C" __global__ void solve(const float* x,
         ...sanitizedProblem,
         ...mergedOverride,
         starterCode: sanitizedProblem.starterCode,
-        editorStarterCode: "",
-        signatureHint: sanitizedProblem.signatureHint,
+        editorStarterCode,
+        signatureHint,
         examples: Array.isArray(override.examples) ? cloneJson(override.examples) : problem.examples
       });
     }
@@ -7134,6 +7145,47 @@ extern "C" __global__ void solve(const float* x,
       }
     }
 
+    function updateCompileStatusNote(problem, state = "idle", detail = "") {
+      const note = document.getElementById("compile-status-note");
+      if (!note || !problem) {
+        return;
+      }
+
+      if (!problem.supportsCudaCompile) {
+        note.textContent = "This challenge does not currently support browser CUDA compilation.";
+        return;
+      }
+
+      switch (state) {
+        case "loading-compiler":
+          note.textContent = "Loading the BarraCUDA compiler wasm module...";
+          break;
+        case "compiling":
+          note.textContent = "Compiling the CUDA submission in-browser...";
+          break;
+        case "success":
+          note.textContent = "Compilation succeeded. Review the generated PTX or run the judge.";
+          break;
+        case "error":
+          note.textContent = detail || "Compilation failed. Check the log panel for details.";
+          break;
+        case "warning":
+          note.textContent = detail || "The CUDA submission may use features the browser compiler does not accept.";
+          break;
+        default:
+          note.textContent = "Compile a CUDA submission to generate PTX and inspect compiler feedback here.";
+          break;
+      }
+    }
+
+    function getCudaCompilePreflightError(source) {
+      if (/\bINFINITY\b/.test(source)) {
+        return "Compilation failed before submission: BarraCUDA currently does not resolve INFINITY here. Replace it with an explicit float constant such as -3.402823e38f.";
+      }
+
+      return "";
+    }
+
     function renderProblemBadges(problem) {
       const row = document.getElementById("problem-badges");
       if (!row || !problem) {
@@ -8802,6 +8854,7 @@ extern "C" __global__ void solve(const float* x,
       resetButton.disabled = !canRun || problem.examples.length === 0;
       runButton.disabled = true;
       testcaseHelp.textContent = problem.testcaseHelp;
+      updateCompileStatusNote(problem, canCompile ? "idle" : "unavailable");
       updateRunStatusNote(problem, canRun ? "awaiting-compile" : "compile-only");
     }
 
@@ -8811,7 +8864,7 @@ extern "C" __global__ void solve(const float* x,
         return;
       }
 
-      setCudaSourceValue(problem.starterCode);
+      setCudaSourceValue(problem.editorStarterCode || problem.starterCode);
       if (pushMessage) {
         pushLog(problem.supportsCudaCompile
           ? "Reset the CUDA editor to the starter code."
@@ -10780,6 +10833,10 @@ extern "C" __global__ void solve(const float* x,
           throw new Error("BarraCUDA compiler assets are not available.");
         }
 
+        const problem = getCurrentProblem();
+        if (problem) {
+          updateCompileStatusNote(problem, "loading-compiler");
+        }
         pushLog("Loading the BarraCUDA compiler wasm module...", "runtime");
         barraModulePromise = createBarraModule({
           print: (text) => pushLog(`[BarraCUDA] ${text}`, "runtime"),
@@ -10870,12 +10927,27 @@ extern "C" __global__ void solve(const float* x,
 
       const source = getCudaSourceValue();
       if (!source.trim()) {
+        updateCompileStatusNote(problem, "error", "CUDA source is empty. Paste code or import a .cu file first.");
         pushLog("CUDA source is empty. Paste code or import a .cu file first.", "stderr");
         return;
       }
 
+      const preflightError = getCudaCompilePreflightError(source);
+      if (preflightError) {
+        updateCompileStatusNote(problem, "error", preflightError);
+        pushLog(preflightError, "stderr");
+        return;
+      }
+
+      const compileButton = document.getElementById("compile-button");
       try {
+        if (compileButton) {
+          compileButton.disabled = true;
+        }
+        updateCompileStatusNote(problem, "compiling");
         pushLog("Compiling the CUDA submission to PTX in-browser...", "runtime");
+        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
         const compiler = await ensureCompilerReady();
         ensureModuleWorkspace(compiler);
 
@@ -10889,16 +10961,23 @@ extern "C" __global__ void solve(const float* x,
 
         if (!ok) {
           const error = compiler.ccall("barracuda_get_last_error", "string", [], []);
+          updateCompileStatusNote(problem, "error", error || "BarraCUDA failed to compile the CUDA source.");
           pushLog(error || "BarraCUDA failed to compile the CUDA source.", "stderr");
           return;
         }
 
         const generatedPTX = compiler.FS.readFile("/workspace/submission.ptx", { encoding: "utf8" });
         setGeneratedPTX(generatedPTX);
+        updateCompileStatusNote(problem, "success");
         pushLog("Compiled the CUDA submission to PTX in-browser.", "runtime");
         loadPTXProgram(generatedPTX, "submission.cu");
       } catch (error) {
+        updateCompileStatusNote(problem, "error", `Compilation failed: ${error.message}`);
         pushLog(`Compilation failed: ${error.message}`, "stderr");
+      } finally {
+        if (compileButton) {
+          compileButton.disabled = !getCurrentProblem()?.supportsCudaCompile;
+        }
       }
     }
 
